@@ -4,18 +4,21 @@
 
 ## 功能特性
 
-- 🔍 智能搜索：支持论文标题、作者、关键词搜索
-- 🤖 AI关键词提取：输入搜索词时自动提取相关关键词，支持编辑和删除
-- 📚 搜索历史：自动记录最近搜索词，支持快速重新搜索
-- 🏷️ 动态标签：基于搜索历史生成标签，点击创建新的搜索任务
-- 📋 任务管理：搜索任务以表格形式展示，包含检索中、检索失败、检索成功三种状态
-- 🌐 后端集成：支持从后端API获取搜索历史、AI关键词和任务数据
-- 💾 本地缓存：当后端不可用时，使用本地存储和模拟数据作为备选方案
-- ✅ 任务操作：只有检索成功的任务才能查看详情，支持删除任务等操作
-- 🔄 状态轮询：自动轮询检索中任务的状态，实时更新进度
-- 📱 响应式设计：适配桌面端和移动端
-- ⚡ 快速加载：基于 Vite 构建，开发体验优秀
-- 🎨 现代UI：简洁美观的用户界面，支持加载状态和高亮显示
+- 🔍 **智能搜索**：支持论文标题、作者、关键词等多维度搜索
+- 🤖 **AI关键词提取**：输入搜索词时自动提取相关关键词，支持编辑和删除
+- 📚 **搜索历史**：从API获取最近搜索记录，支持快速重新搜索
+- 🏷️ **动态标签**：基于搜索历史生成标签，点击直接跳转到结果页面
+- 📋 **任务管理**：搜索任务以表格形式展示，支持分页和状态筛选
+- 📄 **论文详情**：详细展示论文信息，包括CCF级别、SCI级别、JCR级别、影响因子等
+- 🏷️ **标签系统**：作者、关键词、级别等信息以标签形式展示
+- 📖 **摘要展开**：原文摘要和整理后摘要支持展开/收起功能
+- 🌐 **后端集成**：完整的API集成，支持搜索、任务管理、论文检索
+- 💾 **智能缓存**：后端不可用时自动切换到模拟数据
+- ✅ **任务操作**：支持查看、删除任务，状态实时更新
+- 🔄 **状态轮询**：自动轮询检索中任务的状态，实时更新进度
+- 📱 **响应式设计**：完美适配桌面端和移动端
+- ⚡ **快速加载**：基于 Vite 构建，开发体验优秀
+- 🎨 **现代UI**：美观的渐变设计，玻璃态效果，丰富的动画交互
 
 ## 技术栈
 
@@ -66,7 +69,7 @@ npm run format
 
 ## 项目结构
 
-```
+```text
 src/
 ├── components/          # 可复用组件
 │   ├── SearchInput.vue  # 搜索输入框
@@ -75,13 +78,13 @@ src/
 │   ├── EditableTag.vue  # 可编辑关键词标签
 │   └── AddKeywordButton.vue # 添加关键词按钮
 ├── views/               # 页面组件
-│   ├── HomeView.vue     # 主页（搜索入口，AI关键词提取）
-│   ├── SearchResultsView.vue # 检索信息页（表格展示结果）
-│   └── TasksView.vue    # 任务管理页（任务列表和状态）
+│   ├── HomeView.vue     # 主页（搜索入口，AI关键词提取，最近搜索）
+│   ├── SearchResultsView.vue # 检索信息页（论文详情表格，分页）
+│   └── TasksView.vue    # 任务管理页（任务列表，状态管理，分页）
 ├── services/            # API服务
-│   └── api.ts           # 后端API接口封装（搜索、AI关键词、任务管理）
+│   └── api.ts           # 完整API接口封装（搜索、AI、任务、论文）
 ├── composables/         # 组合式函数
-│   └── useSearchHistory.ts # 搜索历史状态管理
+│   └── useSearchHistory.ts # 搜索历史状态管理（已弃用）
 ├── router/              # 路由配置
 │   └── index.ts
 ├── App.vue              # 根组件
@@ -101,22 +104,28 @@ src/
 
 ### API服务
 
-- **api.ts**: 封装后端API调用，包括：
+- **api.ts**: 完整的API服务封装，包含7个核心接口：
   - 搜索历史管理 (`/search/recentsearch`)
-  - AI关键词提取 (`/ai/extract-keywords`)
+  - AI关键词提取 (`/ai/keywords`)
   - 搜索任务提交 (`/search/search`)
-  - 任务列表获取 (`/search/tasks`)
+  - 任务列表获取 (`/search/list`)
   - 任务状态查询 (`/search/state`)
-- **useSearchHistory.ts**: 搜索历史状态管理，包含本地缓存机制
+  - 任务删除 (`/search/delete`)
+  - 论文搜索 (`/papers/search`)
+- **useSearchHistory.ts**: 本地搜索历史管理（已弃用，改为API获取）
 
 ### 功能特点
 
-- **AI关键词提取**: 输入搜索词时自动调用AI接口提取相关关键词
-- **关键词编辑**: 支持双击编辑、删除和添加关键词
+- **AI关键词提取**: 输入搜索词时自动调用AI接口提取相关关键词，支持防抖优化
+- **关键词编辑**: 支持双击编辑、删除和添加关键词，实时预览
 - **搜索任务**: 提交搜索词和关键词到后端，创建搜索任务
-- **任务管理**: 任务列表页面显示所有搜索任务，包含检索中、检索失败、检索成功三种状态
+- **任务管理**: 完整的任务生命周期管理，支持分页、删除、状态查询
 - **状态轮询**: 每5秒自动检查检索中任务的状态，实时更新进度
-- **条件查看**: 只有检索成功的任务才能点击查看按钮跳转到检索信息页
+- **论文搜索**: 丰富的论文信息展示，包含12个字段的详细信息
+- **影响因子分级**: 5级影响因子标签，直观显示论文质量
+- **摘要展开**: 支持摘要部分显示和完整展开功能
+- **表格优化**: 列分隔线、居中对齐、动态列宽
+- **搜索历史**: API获取最近搜索，支持点击直接跳转
 - **智能缓存**: 后端不可用时自动切换到本地存储和模拟数据
 - **实时更新**: 搜索历史实时更新，按时间排序
 - **任务高亮**: 新创建的任务在任务列表中高亮显示
@@ -124,56 +133,56 @@ src/
 ### API接口说明
 
 #### 1. 获取最近搜索历史
-```
-GET /search/recentsearch
+
+```http
+GET /search/recentsearch?limitNum=5
 ```
 响应格式：
 ```json
 {
   "code": 0,
   "msg": "success",
-  "data": {
-    "search_inf": [
-      {
-        "id": 25,
-        "search": "动作质量评估",
-        "search-time": "2026-02-04 01:13:37"
-      }
-    ]
-  }
+  "data": [
+    {
+      "id": 97,
+      "searchWord": "动作质量评估"
+    },
+    {
+      "id": 68,
+      "searchWord": "电网故障检测"
+    }
+  ]
 }
 ```
 
 #### 2. AI关键词提取
-```
-POST /ai/extract-keywords
-```
-请求体：
-```json
-{
-  "query": "动作质量评估"
-}
+
+```http
+GET /ai/keywords?search_word=电网故障检测
 ```
 响应格式：
 ```json
 {
-  "keywords": [
-    "Action Quality Assessment",
-    "Self-attention Mechanism", 
-    "Video Action Analysis"
+  "code": 0,
+  "msg": "success",
+  "data": [
+    "Power System Fault Diagnosis",
+    "Transient Stability Analysis",
+    "Protective Relay Coordination"
   ]
 }
 ```
 
 #### 3. 提交搜索任务
-```
+
+```http
 POST /search/search
 ```
 请求体：
 ```json
 {
   "search_inf": "动作质量评估",
-  "keywards": [
+  "keywords": [
     "Action Quality Assessment",
     "Self-attention Mechanism",
     "Video Action Analysis"
@@ -193,8 +202,9 @@ POST /search/search
 ```
 
 #### 4. 获取任务列表
-```
-GET /search/tasks
+
+```http
+GET /search/list?page=1&size=10
 ```
 响应格式：
 ```json
@@ -204,22 +214,54 @@ GET /search/tasks
   "data": {
     "searchs": [
       {
-        "id": 0,
+        "id": 1,
         "title": "动作质量评估",
-        "keywards": [
+        "keywords": [
           "Action Quality Assessment",
           "Self-attention Mechanism"
         ],
         "state": 1
       }
-    ]
+    ],
+    "total": 50,
+    "page": 1,
+    "pagesize": "10"
   }
 }
 ```
 
 #### 5. 查询任务状态
+
+```http
+GET /search/state?id=123
 ```
-GET /search/state?id={taskId}
+响应格式：
+```json
+{
+  "code": 0,
+  "msg": "success",
+  "data": 0
+}
+```
+
+#### 6. 删除任务
+
+```http
+DELETE /search/delete?id=123
+```
+响应格式：
+```json
+{
+  "code": 0,
+  "msg": "删除成功",
+  "data": {}
+}
+```
+
+#### 7. 搜索论文
+
+```http
+GET /papers/search?id=123&page=1&size=10
 ```
 响应格式：
 ```json
@@ -227,26 +269,181 @@ GET /search/state?id={taskId}
   "code": 0,
   "msg": "success",
   "data": {
-    "state": 0
+    "papers": [
+      {
+        "title": "论文标题",
+        "time": 2023,
+        "authers": "作者1,作者2",
+        "abstract": "原文摘要",
+        "ai_abstract": "整理后摘要",
+        "venue": "期刊或会议名称",
+        "venue_state": 0,
+        "citations": 100,
+        "ccf_partition": "A",
+        "jcr_partition": "Q1",
+        "sci_partition": "SCI",
+        "sciif": 5.2,
+        "keywords": "关键词1,关键词2",
+        "url": "论文链接"
+      }
+    ],
+    "total": 10,
+    "current_page": 1,
+    "size": 10
   }
 }
 ```
-任务状态说明（state字段）：
+
+### 完整API接口列表
+
+| 接口类型 | 方法 | 端点 | 描述 | 前端方法 |
+|---------|------|------|------|----------|
+| 搜索历史 | GET | `/search/recentsearch?limitNum={number}` | 获取最近搜索记录 | `getSearchHistory()` |
+| 搜索任务 | POST | `/search/search` | 提交搜索任务 | `submitSearch()` |
+| 任务管理 | GET | `/search/list?page={number}&size={number}` | 获取任务列表 | `getSearchTasks()` |
+| 任务状态 | GET | `/search/state?id={number}` | 查询任务状态 | `getTaskStatus()` |
+| 任务删除 | DELETE | `/search/delete?id={number}` | 删除任务 | `deleteTask()` |
+| 论文搜索 | GET | `/papers/search?id={number}&page={number}&size={number}` | 搜索论文结果 | `searchPapers()` |
+| AI服务 | GET | `/ai/keywords?search_word={string}` | AI关键词提取 | `extractKeywords()` |
+
+#### 任务状态说明
+
 - `0`: 正在检索
 - `1`: 检索完成成功  
 - `2`: 检索失败
 
-任务状态查询状态码说明（/search/state接口）：
-- `0`: 正在检索
-- `1`: 检索完成成功
-- `2`: 检索失败
+#### 论文类型说明
+
+- `venue_state`: 0为期刊，1为会议
+
+#### 影响因子分级
+
+- **极高影响因子** (IF ≥ 10): 红色标签
+- **高影响因子** (5 ≤ IF < 10): 橙色标签  
+- **中等影响因子** (2 ≤ IF < 5): 蓝色标签
+- **一般影响因子** (1 ≤ IF < 2): 绿色标签
+- **低影响因子** (IF < 1): 灰色标签
+
+## 环境配置
+
+### 开发环境
+
+项目使用Vite代理来解决开发环境的跨域问题：
+
+```typescript
+// vite.config.ts
+server: {
+  proxy: {
+    '/api': {
+      target: 'http://localhost:8080',
+      changeOrigin: true,
+      secure: false,
+      rewrite: (path) => path.replace(/^\/api/, '')
+    },
+    '/ai-service': {
+      target: 'http://localhost:8081',
+      changeOrigin: true,
+      secure: false,
+      rewrite: (path) => path.replace(/^\/ai-service/, '')
+    }
+  }
+}
+```
+
+### 环境变量
+
+创建 `.env` 文件配置API地址：
+
+```bash
+# 主API服务地址
+VITE_API_BASE_URL=/api
+
+# AI服务地址  
+VITE_AI_API_BASE_URL=/ai-service
+```
+
+### 后端服务
+
+项目需要以下后端服务：
+
+1. **主API服务** (端口8080)
+   - 搜索历史管理
+   - 任务管理
+   - 论文搜索
+
+2. **AI服务** (端口8081)
+   - 关键词提取
 
 ### 样式规范
 
 - 使用现代CSS特性，支持响应式设计
-- 遵循设计系统的颜色和间距规范
+- 采用渐变背景和玻璃态设计风格
 - 组件样式采用scoped模式，避免样式冲突
 - 支持加载状态、空状态等用户体验优化
+- 丰富的动画效果和交互反馈
+
+## 功能展示
+
+### 主要页面
+
+1. **首页** - 搜索入口和AI关键词提取
+   - 美观的渐变背景设计
+   - 实时AI关键词提取
+   - 最近搜索历史标签
+
+2. **任务管理页** - 搜索任务列表
+   - 分页显示任务列表
+   - 实时状态更新
+   - 支持删除和查看操作
+
+3. **检索结果页** - 论文详情展示
+   - 丰富的论文信息展示
+   - 标签化的作者、关键词、级别信息
+   - 可展开的摘要内容
+   - 影响因子分级显示
+
+### 特色功能
+
+- **AI关键词提取**: 输入搜索词后400ms防抖自动提取相关关键词
+- **智能标签**: 作者、关键词、CCF级别、SCI级别等信息标签化展示
+- **影响因子分级**: 根据IF值自动分为5个等级，不同颜色标识
+- **摘要展开**: 长摘要默认折叠，点击"..."展开完整内容
+- **状态轮询**: 检索中的任务每5秒自动更新状态
+- **响应式设计**: 完美适配各种屏幕尺寸
+
+## 更新日志
+
+### v2.1.0 (2024-11-05)
+- ✨ 新增完整的API接口系统，支持7个核心接口
+- ✨ 新增任务状态实时轮询功能
+- ✨ 新增论文搜索结果页面，支持分页和筛选
+- ✨ 新增影响因子分级标签显示（5个等级）
+- ✨ 新增摘要展开/收起功能，支持部分显示
+- ✨ 新增表格列分隔线和居中对齐
+- ✨ 优化搜索历史，改为API获取，支持点击直接跳转
+- ✨ 美化AI关键词提取界面，添加渐变背景和动画效果
+- 🔧 修改任务状态接口格式，简化数据结构
+- 🔧 修改AI关键词提取接口，返回字符串数组
+- 🔧 修改最近搜索接口，优化数据格式
+- 🐛 修复组件卸载时的内存泄漏问题
+- 🐛 修复数据访问安全性问题
+- 🐛 修复表格列对齐问题
+- 📝 更新API接口格式，统一返回结构
+
+### v2.0.0 (2024-11-01)
+- ✨ 新增论文详情页面，支持丰富的论文信息展示
+- ✨ 新增基础的影响因子显示功能
+- ✨ 新增基础的摘要显示功能
+- 🐛 修复基础的数据访问问题
+- 📝 初步建立API接口规范
+
+### v1.0.0 (2024-10-01)
+
+- 🎉 项目初始版本
+- ✨ 基础搜索功能
+- ✨ AI关键词提取
+- ✨ 任务管理
+- ✨ 搜索历史
 
 ## 浏览器支持
 
@@ -254,6 +451,14 @@ GET /search/state?id={taskId}
 - Firefox >= 78
 - Safari >= 14
 - Edge >= 88
+
+## 贡献指南
+
+1. Fork 本仓库
+2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 打开 Pull Request
 
 ## 许可证
 

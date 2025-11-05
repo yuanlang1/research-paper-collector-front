@@ -118,8 +118,8 @@ const extractKeywords = async (query: string) => {
   
   try {
     const result = await apiService.extractKeywords(query.trim())
-    if (result && result.data && Array.isArray(result.data.keywords)) {
-      extractedKeywords.value = result.data.keywords
+    if (result && result.data && Array.isArray(result.data)) {
+      extractedKeywords.value = result.data
     } else {
       console.warn('Invalid keyword extraction response:', result)
       extractedKeywords.value = []

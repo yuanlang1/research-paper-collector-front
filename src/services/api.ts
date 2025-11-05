@@ -12,12 +12,10 @@ export interface SearchHistory {
 export interface RecentSearchResponse {
   code: number  // 业务状态码：0或1，但使用HTTP状态码判断请求成功与否
   msg: string
-  data: {
-    tasks: Array<{
-      id: number
-      title: string 
-    }>
-  }
+  data: Array<{
+    id: number
+    searchWord: string
+  }>
 } 
 
 // 论文数据接口
@@ -86,9 +84,7 @@ export interface SearchResult {
 export interface KeywordExtractionResult {
   code: number
   msg: string
-  data: {
-    keywords: string[]
-  }
+  data: string[]  // 直接返回关键词字符串数组
 }
 
 // 搜索请求接口
@@ -140,9 +136,7 @@ export interface TasksResponse {
 export interface TaskStatusResponse {
   code: number
   msg: string
-  data: {
-    state: number // 0: 检索中, 1: 检索失败, 2: 检索成功
-  }
+  data: number // 直接返回状态数字: 0: 检索中, 1: 检索成功, 2: 检索失败
 }
 
 // 任务删除响应接口
@@ -192,9 +186,9 @@ class ApiService {
     try {
       const response = await this.request<RecentSearchResponse>(`/search/recentsearch?limitNum=${limit}`)
       
-      return response.data.tasks.map(item => ({
+      return response.data.map(item => ({
         id: item.id,
-        keyword: item.title,
+        keyword: item.searchWord,
       }))
       
     } catch (error) {
@@ -204,10 +198,43 @@ class ApiService {
     }
   }
 
+  // 生成模拟的最近搜索响应数据
+  private getMockRecentSearchResponse(limit: number = 5): RecentSearchResponse {
+    const mockData = [
+      { id: 97, searchWord: '动作质量评估' },
+      { id: 68, searchWord: '电网故障检测' },
+      { id: 45, searchWord: '深度学习算法' },
+      { id: 23, searchWord: '自然语言处理' },
+      { id: 12, searchWord: '计算机视觉' },
+      { id: 8, searchWord: '机器学习' },
+      { id: 3, searchWord: '人工智能' }
+    ]
+
+    return {
+      code: 0,
+      msg: 'success',
+      data: mockData.slice(0, limit)
+    }
+  }
+
   // 保存搜索记录（已移除后端保存，仅本地存储）
   async saveSearchHistory(keyword: string): Promise<void> {
     // 只保存到本地存储
     this.saveToLocalStorage(keyword)
+  }
+
+  // 测试最近搜索接口（返回完整响应数据）
+  async testRecentSearchAPI(limit: number = 5): Promise<RecentSearchResponse> {
+    try {
+      const response = await this.request<RecentSearchResponse>(`/search/recentsearch?limitNum=${limit}`)
+      console.log('✅ 最近搜索接口调用成功:', response)
+      return response
+    } catch (error) {
+      console.warn('⚠️ 后端不可用，返回模拟数据:', error)
+      const mockResponse = this.getMockRecentSearchResponse(limit)
+      console.log('📝 模拟响应数据:', mockResponse)
+      return mockResponse
+    }
   }
 
   // 搜索论文
@@ -511,10 +538,8 @@ class ApiService {
 
     return {
       code: 0,
-      msg: "success",   
-      data: {
-        keywords: keywords
-      }
+      msg: "success",
+      data: keywords  // 直接返回关键词数组
     }
   }
 
@@ -631,9 +656,7 @@ class ApiService {
     return {
       code: 0,
       msg: 'success',
-      data: {
-        state
-      }
+      data: state  // 直接返回状态数字
     }
   }
 

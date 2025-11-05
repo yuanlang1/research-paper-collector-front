@@ -247,7 +247,7 @@ const updateTaskStatus = async (taskId: number) => {
       const task = tasks.value.find(t => t.id === taskId)
       if (task) {
         // 根据状态码更新任务状态和进度
-        switch (response.data.state) {
+        switch (response.data) {
           case 0:
             task.status = 'searching'
             task.progress = '正在检索'
