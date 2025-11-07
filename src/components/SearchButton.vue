@@ -52,7 +52,6 @@ const handleClick = () => {
 }
 
 .search-button:hover {
-  background-color: rgba(0, 136, 255, 0.1);
   color: #0066cc;
 }
 

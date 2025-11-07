@@ -149,7 +149,7 @@ watch(searchQuery, (newQuery) => {
   // 延迟400ms后提取关键词，避免频繁请求
   extractTimer = setTimeout(() => {
     extractKeywords(newQuery)
-  }, 200)
+  }, 300)
 })
 
 // 搜索处理
