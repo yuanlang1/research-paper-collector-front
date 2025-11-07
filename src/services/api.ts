@@ -45,7 +45,7 @@ export interface Paper {
 export interface PaperRaw {
   title: string
   time: number
-  authers: string
+  authors: string
   abstract: string
   ai_abstract: string
   venue: string
@@ -184,7 +184,7 @@ class ApiService {
   // 获取搜索历史
   async getSearchHistory(limit: number = 2): Promise<SearchHistory[]> {
     try {
-      const response = await this.request<RecentSearchResponse>(`/search/recentsearch?limitNum=${limit}`)
+      const response = await this.request<RecentSearchResponse>(`/search/recentSearch?limitNum=${limit}`)
       
       return response.data.map(item => ({
         id: item.id,
@@ -226,7 +226,7 @@ class ApiService {
   // 测试最近搜索接口（返回完整响应数据）
   async testRecentSearchAPI(limit: number = 5): Promise<RecentSearchResponse> {
     try {
-      const response = await this.request<RecentSearchResponse>(`/search/recentsearch?limitNum=${limit}`)
+      const response = await this.request<RecentSearchResponse>(`/search/recentSearch?limitNum=${limit}`)
       console.log('✅ 最近搜索接口调用成功:', response)
       return response
     } catch (error) {
@@ -296,7 +296,7 @@ class ApiService {
         keywords: keywords
       }
       
-      return await this.request<SearchResponse>('/search/search', {
+      return await this.request<SearchResponse>('/search/submitSearch', {
         method: 'POST',
         body: JSON.stringify(searchRequest)
       })
@@ -407,7 +407,7 @@ class ApiService {
       id: index + 1,
       title: rawPaper.title,
       abstract: rawPaper.abstract,
-      authors: rawPaper.authers ? rawPaper.authers.split(',').map(a => a.trim()) : [],
+      authors: rawPaper.authors ? rawPaper.authors.split(',').map(a => a.trim()) : [],
       year: rawPaper.time,
       journal: rawPaper.venue,
       venueType: rawPaper.venue_state === 0 ? 'journal' : 'conference',
