@@ -38,10 +38,7 @@
               <th class="col-year">发表年份</th>
               <th class="col-journal">期刊或会议名称</th>
               <th class="col-venue-type">类型</th>
-              <th class="col-ccf">CCF级别</th>
-              <th class="col-sci">SCI级别</th>
-              <th class="col-jcr">JCR级别</th>
-              <th class="col-impact-factor">影响因子</th>
+              <th class="col-tags">标签</th>
               <th class="col-keywords">关键词</th>
               <th class="col-abstract">原文摘要</th>
               <th class="col-summary">整理后摘要</th>
@@ -70,13 +67,32 @@
               </td>
               <td class="col-authors">
                 <div class="authors-tags">
-                  <span 
-                    v-for="(author, index) in paper.authors" 
-                    :key="index"
-                    class="author-tag"
-                  >
-                    {{ author }}
-                  </span>
+                  <template v-if="!paper.authorsExpanded && paper.authors.length > 3">
+                    <span 
+                      v-for="(author, index) in paper.authors.slice(0, 3)" 
+                      :key="index"
+                      class="author-tag"
+                    >
+                      {{ author }}
+                    </span>
+                    <span class="expand-authors" @click="toggleAuthors(paper.id)">...</span>
+                  </template>
+                  <template v-else>
+                    <span 
+                      v-for="(author, index) in paper.authors" 
+                      :key="index"
+                      class="author-tag"
+                    >
+                      {{ author }}
+                    </span>
+                    <span 
+                      v-if="paper.authorsExpanded && paper.authors.length > 3"
+                      class="collapse-authors" 
+                      @click="toggleAuthors(paper.id)"
+                    >
+                      收起
+                    </span>
+                  </template>
                 </div>
               </td>
               <td class="col-year">{{ paper.year }}</td>
@@ -89,33 +105,28 @@
                   {{ paper.venueType === 'journal' ? '期刊' : '会议' }}
                 </span>
               </td>
-              <td class="col-ccf">
-                <span v-if="paper.ccfLevel" class="level-tag ccf-tag" :class="'ccf-' + paper.ccfLevel.toLowerCase()">
-                  {{ paper.ccfLevel }}
-                </span>
-                <span v-else class="no-data">-</span>
-              </td>
-              <td class="col-sci">
-                <span v-if="paper.sciLevel" class="level-tag sci-tag" :class="'sci-' + paper.sciLevel.toLowerCase()">
-                  {{ paper.sciLevel }}
-                </span>
-                <span v-else class="no-data">-</span>
-              </td>
-              <td class="col-jcr">
-                <span v-if="paper.jcrLevel" class="level-tag jcr-tag" :class="'jcr-' + paper.jcrLevel.toLowerCase()">
-                  {{ paper.jcrLevel }}
-                </span>
-                <span v-else class="no-data">-</span>
-              </td>
-              <td class="col-impact-factor">
-                <span 
-                  v-if="paper.impactFactor" 
-                  class="impact-factor-tag"
-                  :class="getImpactFactorClass(paper.impactFactor)"
-                >
-                  {{ paper.impactFactor }}
-                </span>
-                <span v-else class="no-data">-</span>
+              <td class="col-tags">
+                <div class="tags-container">
+                  <span v-if="paper.ccfLevel" class="level-tag ccf-tag" :class="'ccf-' + paper.ccfLevel.toLowerCase()">
+                    CCF {{ paper.ccfLevel }}
+                  </span>
+                  <span v-if="paper.sciLevel" class="level-tag sci-tag" :class="'sci-' + paper.sciLevel.toLowerCase()">
+                    SCI {{ paper.sciLevel }}
+                  </span>
+                  <span v-if="paper.coreLevel" class="level-tag core-tag" :class="'core-' + paper.coreLevel.toLowerCase()">
+                    CORE {{ paper.coreLevel }}
+                  </span>
+                  <span v-if="paper.sciUpFull" class="level-tag jcr-tag" :class="'jcr-' + paper.jcrLevel">
+                    中科院大区：{{ paper.sciUpFull }}
+                  </span>
+                  <span 
+                    v-if="paper.impactFactor" 
+                    class="level-tag impact-factor-tag"
+                    :class="getImpactFactorClass(paper.impactFactor)"
+                  >
+                    IF: {{ paper.impactFactor }}
+                  </span>
+                </div>
               </td>
               <td class="col-keywords">
                 <div class="keywords-tags">
@@ -130,40 +141,26 @@
               </td>
               <td class="col-abstract">
                 <div class="abstract-content">
-                  <p class="abstract-text" :class="{ 'expanded': paper.abstractExpanded }">
-                    <span v-if="!paper.abstractExpanded && paper.abstract && paper.abstract.length > 100">
+                  <p class="abstract-text">
+                    <span v-if="paper.abstract && paper.abstract.length > 100">
                       {{ truncateText(paper.abstract, 80) }}
-                      <span class="expand-dots" @click="toggleAbstract(paper.id)">...</span>
+                      <span class="expand-dots" @click="showAbstractModal(paper)">...</span>
                     </span>
                     <span v-else>
                       {{ paper.abstract }}
-                      <span 
-                        v-if="paper.abstractExpanded && paper.abstract && paper.abstract.length > 100" 
-                        class="collapse-btn" 
-                        @click="toggleAbstract(paper.id)"
-                      >
-                        收起
-                      </span>
                     </span>
                   </p>
                 </div>
               </td>
               <td class="col-summary">
                 <div class="summary-content">
-                  <p class="summary-text" :class="{ 'expanded': paper.summaryExpanded }">
-                    <span v-if="!paper.summaryExpanded && paper.summary && paper.summary.length > 100">
+                  <p class="summary-text">
+                    <span v-if="paper.summary && paper.summary.length > 100">
                       {{ truncateText(paper.summary, 80) }}
-                      <span class="expand-dots" @click="toggleSummary(paper.id)">...</span>
+                      <span class="expand-dots" @click="showSummaryModal(paper)">...</span>
                     </span>
                     <span v-else>
                       {{ paper.summary }}
-                      <span 
-                        v-if="paper.summaryExpanded && paper.summary && paper.summary.length > 100" 
-                        class="collapse-btn" 
-                        @click="toggleSummary(paper.id)"
-                      >
-                        收起
-                      </span>
                     </span>
                   </p>
                 </div>
@@ -264,6 +261,22 @@
       <div class="loading-spinner"></div>
       <p>正在加载搜索结果...</p>
     </div>
+
+    <!-- 摘要模态窗口 -->
+    <div v-if="showModal" class="modal-overlay" @click="closeModal">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header">
+          <h3>{{ modalTitle }}</h3>
+          <button class="modal-close" @click="closeModal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-text">{{ modalContent }}</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary" @click="closeModal">关闭</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -281,14 +294,33 @@ const searchKeyword = ref(route.query.keyword as string || '')
 const searchKeywords = ref<string[]>([])
 const taskId = ref(parseInt(route.query.taskId as string) || 0)
 
+// 从后端获取任务关键词
+const fetchTaskKeywords = async () => {
+  if (!taskId.value) return
+  
+  try {
+    const response = await apiService.getTaskKeywords(taskId.value)
+    if (response.code === 0 && response.success && response.data) {
+      // 将逗号分隔的字符串转换为数组
+      searchKeywords.value = response.data.split(',').map(k => k.trim()).filter(k => k)
+      console.log('获取到的关键词:', searchKeywords.value)
+    }
+  } catch (error) {
+    console.error('获取任务关键词失败:', error)
+  }
+}
+
 // 解析URL参数中的关键词
-const parseKeywords = () => {
+const parseKeywords = async () => {
   if (route.query.keywords) {
     // 从URL参数解析关键词数组
     searchKeywords.value = (route.query.keywords as string).split(',').filter(k => k.trim())
   } else if (searchKeyword.value) {
     // 如果没有关键词数组，使用搜索词作为关键词
     searchKeywords.value = [searchKeyword.value]
+  } else if (!searchKeyword.value && taskId.value) {
+    // 如果keyword为空，从后端获取关键词
+    await fetchTaskKeywords()
   }
 }
 
@@ -299,10 +331,17 @@ const totalResults = ref(0)
 const totalPages = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(20)
+const orderWord = ref('published_date') // 排序字段
+const orderId = ref('1') // 排序方式: "0"=asc, "1"=desc
 
 // 选择状态
 const selectedPapers = ref<number[]>([])
 const selectAll = ref(false)
+
+// 模态窗口状态
+const showModal = ref(false)
+const modalTitle = ref('')
+const modalContent = ref('')
 
 // 计算属性
 
@@ -339,19 +378,32 @@ const getImpactFactorClass = (impactFactor: number) => {
   }
 }
 
-// 切换摘要展开状态
-const toggleAbstract = (paperId: number) => {
-  const paper = papers.value.find(p => p.id === paperId)
-  if (paper) {
-    paper.abstractExpanded = !paper.abstractExpanded
-  }
+// 显示原文摘要模态窗口
+const showAbstractModal = (paper: Paper) => {
+  modalTitle.value = `原文摘要 - ${paper.title}`
+  modalContent.value = paper.abstract
+  showModal.value = true
 }
 
-// 切换总结展开状态
-const toggleSummary = (paperId: number) => {
+// 显示整理后摘要模态窗口
+const showSummaryModal = (paper: Paper) => {
+  modalTitle.value = `整理后摘要 - ${paper.title}`
+  modalContent.value = paper.summary
+  showModal.value = true
+}
+
+// 关闭模态窗口
+const closeModal = () => {
+  showModal.value = false
+  modalTitle.value = ''
+  modalContent.value = ''
+}
+
+// 切换作者列表展开状态
+const toggleAuthors = (paperId: number) => {
   const paper = papers.value.find(p => p.id === paperId)
   if (paper) {
-    paper.summaryExpanded = !paper.summaryExpanded
+    paper.authorsExpanded = !paper.authorsExpanded
   }
 }
 
@@ -365,7 +417,9 @@ const fetchSearchResults = async () => {
     const result = await apiService.searchPapers(
       taskId.value,
       currentPage.value,
-      pageSize.value
+      pageSize.value,
+      orderWord.value,
+      orderId.value
     )
     
     // 转换数据格式以匹配表格需求
@@ -426,8 +480,8 @@ const clearSelection = () => {
 }
 
 // 组件挂载时获取数据
-onMounted(() => {
-  parseKeywords() // 解析关键词
+onMounted(async () => {
+  await parseKeywords() // 解析关键词（等待异步获取完成）
   if (taskId.value) {
     fetchSearchResults()
   } else {
@@ -443,7 +497,7 @@ onMounted(() => {
   margin: 0 auto;
   padding: 30px;
   min-height: 100vh;
-  background-color: #ffffff;
+  background-color: #f5f5f5;
 }
 
 .page-header {
@@ -457,6 +511,7 @@ onMounted(() => {
   font-weight: 600;
   color: #333333;
   margin: 0 0 12px 0;
+  text-align: center;
 }
 
 .search-info {
@@ -579,15 +634,17 @@ onMounted(() => {
   min-width: 60px; 
   text-align: center;
 }
-.col-ccf, .col-sci, .col-jcr { 
+.col-tags { 
   width: auto; 
-  min-width: 70px; 
+  min-width: 180px; 
   text-align: center;
 }
-.col-impact-factor { 
-  width: auto; 
-  min-width: 80px; 
-  text-align: center;
+.tags-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+  align-items: center;
 }
 .col-keywords { 
   width: auto; 
@@ -635,10 +692,8 @@ onMounted(() => {
   color: #333333;
   margin: 0 0 8px 0;
   line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  word-wrap: break-word;
+  white-space: normal;
 }
 
 .paper-abstract {
@@ -851,8 +906,8 @@ onMounted(() => {
     min-width: 50px;
   }
   
-  .col-impact-factor {
-    min-width: 60px;
+  .col-tags {
+    min-width: 150px;
   }
   
   .col-abstract,
@@ -990,29 +1045,73 @@ onMounted(() => {
   border: 1px solid #e91e63;
 }
 
-/* JCR级别标签 */
+/* CORE等级标签 */
+/* A* 和 A 级别 - 绿色 (最高级别) */
+.core-tag.core-a\*,
+.core-tag.core-a {
+  background-color: #e8f5e8;
+  color: #2e7d32;
+  border: 1px solid #4caf50;
+  font-weight: 600;
+}
+
+/* B 级别 - 蓝色 */
+.core-tag.core-b {
+  background-color: #e3f2fd;
+  color: #1976d2;
+  border: 1px solid #2196f3;
+  font-weight: 600;
+}
+
+/* C 级别 - 橙色 */
+.core-tag.core-c {
+  background-color: #fff3e0;
+  color: #ef6c00;
+  border: 1px solid #ff9800;
+  font-weight: 600;
+}
+
+/* 未分级 - 灰色 */
+.core-tag.core-unranked,
+.core-tag.core-none {
+  background-color: #f5f5f5;
+  color: #757575;
+  border: 1px solid #e0e0e0;
+  font-weight: 600;
+}
+
+/* 中科院分区标签 */
+.jcr-tag.jcr-1区,
+.jcr-tag.jcr-1区top,
 .jcr-tag.jcr-q1 {
   background-color: #e8f5e8;
   color: #2e7d32;
   border: 1px solid #4caf50;
+  font-weight: 600;
 }
 
+.jcr-tag.jcr-2区,
 .jcr-tag.jcr-q2 {
   background-color: #e3f2fd;
   color: #1976d2;
   border: 1px solid #2196f3;
+  font-weight: 600;
 }
 
+.jcr-tag.jcr-3区,
 .jcr-tag.jcr-q3 {
   background-color: #fff3e0;
   color: #ef6c00;
   border: 1px solid #ff9800;
+  font-weight: 600;
 }
 
+.jcr-tag.jcr-4区,
 .jcr-tag.jcr-q4 {
   background-color: #fce4ec;
   color: #c2185b;
   border: 1px solid #e91e63;
+  font-weight: 600;
 }
 
 /* 关键词标签 */
@@ -1055,6 +1154,7 @@ onMounted(() => {
 .expand-dots {
   color: #1890ff;
   cursor: pointer;
+  font-size: 12px;
   font-weight: bold;
   margin-left: 2px;
   padding: 2px 4px;
@@ -1065,6 +1165,43 @@ onMounted(() => {
 
 .expand-dots:hover {
   background-color: #f0f8ff;
+  color: #0056b3;
+}
+
+/* 作者列表展开/收起按钮 */
+.expand-authors {
+  color: #1890ff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: bold;
+  margin-left: 4px;
+  padding: 2px 6px;
+  border-radius: 2px;
+  transition: all 0.2s;
+  display: inline-block;
+}
+
+.expand-authors:hover {
+  background-color: #f0f8ff;
+  color: #0056b3;
+}
+
+.collapse-authors {
+  color: #1890ff;
+  cursor: pointer;
+  font-size: 11px;
+  margin-left: 8px;
+  padding: 2px 6px;
+  border-radius: 2px;
+  transition: all 0.2s;
+  display: inline-block;
+  border: 1px solid #d9d9d9;
+  background-color: #fafafa;
+}
+
+.collapse-authors:hover {
+  background-color: #e6f7ff;
+  border-color: #1890ff;
   color: #0056b3;
 }
 
@@ -1183,5 +1320,138 @@ onMounted(() => {
 .no-data {
   color: #999;
   font-size: 12px;
+}
+
+/* 模态窗口样式 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal-content {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  max-width: 800px;
+  width: 90%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(50px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 20px;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 28px;
+  color: #999;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.modal-close:hover {
+  background-color: #f5f5f5;
+  color: #333;
+}
+
+.modal-body {
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-text {
+  font-size: 14px;
+  line-height: 1.8;
+  color: #333;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  margin: 0;
+  text-align: justify;
+  text-justify: inter-word;
+}
+
+.modal-footer {
+  padding: 16px 24px;
+  border-top: 1px solid #e8e8e8;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.modal-footer .btn {
+  min-width: 80px;
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .modal-content {
+    width: 95%;
+    max-height: 90vh;
+  }
+  
+  .modal-header h3 {
+    font-size: 16px;
+  }
+  
+  .modal-text {
+    font-size: 13px;
+  }
 }
 </style>

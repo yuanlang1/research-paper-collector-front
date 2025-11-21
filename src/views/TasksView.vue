@@ -14,7 +14,13 @@
               <th class="align-left">任务</th>
               <th class="align-left">搜索词</th>
               <th class="align-left">搜索关键词</th>
-              <th class="align-center">日期</th>
+              <th class="align-center sortable" @click="toggleSort">
+                日期
+                <span class="sort-icon">
+                  <span class="triangle-up" :class="{ active: sortOrder === 0 }">▲</span>
+                  <span class="triangle-down" :class="{ active: sortOrder === 1 }">▼</span>
+                </span>
+              </th>
               <th class="align-center">进度</th>
               <th class="align-center">操作</th>
             </tr>
@@ -162,6 +168,7 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 const totalTasks = ref(0)
 const pollingTimer = ref<NodeJS.Timeout | null>(null)
+const sortOrder = ref<number>(1) // 0=asc, 1=desc, 默认降序
 
 // 高亮显示的任务ID（从查询参数获取）
 const highlightTaskId = computed(() => {
@@ -213,8 +220,10 @@ const fetchTasks = async (page: number = currentPage.value, showLoading: boolean
   
   try {
     const params: TasksRequestParams = {
-      page,
-      size: pageSize.value
+      pageIndex: page,
+      pageSize: pageSize.value,
+      orderWord: 'search_time',
+      orderId: sortOrder.value
     }
     
     const response = await apiService.getSearchTasks(params)
@@ -243,22 +252,30 @@ const fetchTasks = async (page: number = currentPage.value, showLoading: boolean
 const updateTaskStatus = async (taskId: number) => {
   try {
     const response = await apiService.getTaskStatus(taskId)
-    if (response.code === 0) {
+    if (response.code === 0 && response.success) {
       const task = tasks.value.find(t => t.id === taskId)
       if (task) {
-        // 根据状态码更新任务状态和进度
+        // 根据状态字符串更新任务状态和进度
         switch (response.data) {
-          case 0:
+          case 'PENDING':
+            task.status = 'searching'
+            task.progress = '等待中'
+            break
+          case 'RUNNING':
             task.status = 'searching'
             task.progress = '正在检索'
             break
-          case 1:
+          case 'COMPLETED':
             task.status = 'success'
             task.progress = '检索成功'
             break
-          case 2:
+          case 'FAILED':
             task.status = 'failed'
             task.progress = '检索失败'
+            break
+          case 'CANCELLED':
+            task.status = 'failed'
+            task.progress = '已取消'
             break
         }
       }
@@ -325,10 +342,14 @@ const viewTask = (taskId: number) => {
 const deleteTask = async (taskId: number) => {
   if (confirm('确定要删除这个任务吗？')) {
     try {
-      await apiService.deleteTask(taskId)
-      // 从本地列表中移除已删除的任务
-      tasks.value = tasks.value.filter(task => task.id !== taskId)
-      console.log('任务删除成功:', taskId)
+      const response = await apiService.deleteTask(taskId)
+      if (response.code === 0 && response.success && response.data) {
+        // 从本地列表中移除已删除的任务
+        tasks.value = tasks.value.filter(task => task.id !== taskId)
+        console.log('任务删除成功:', taskId)
+      } else {
+        throw new Error(response.message || '删除失败')
+      }
     } catch (error) {
       console.error('删除任务失败:', error)
       alert('删除任务失败，请稍后重试')
@@ -353,6 +374,13 @@ const handlePageSizeChange = async () => {
   // 重置到第一页
   currentPage.value = 1
   await fetchTasks(1, false) // 不显示加载提示
+}
+
+// 切换排序方式
+const toggleSort = async () => {
+  sortOrder.value = sortOrder.value === 0 ? 1 : 0
+  currentPage.value = 1
+  await fetchTasks(1, false)
 }
 
 // 组件挂载时获取任务列表
@@ -422,6 +450,40 @@ onUnmounted(() => {
   -webkit-backdrop-filter: blur(8px);
 }
 
+.tasks-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s ease;
+}
+
+.tasks-table th.sortable:hover {
+  background-color: #e9ecef;
+}
+
+.sort-icon {
+  display: inline-flex;
+  flex-direction: column;
+  margin-left: 6px;
+  vertical-align: middle;
+  line-height: 1;
+}
+
+.triangle-up,
+.triangle-down {
+  font-size: 10px;
+  color: #d1d5db;
+  transition: color 0.2s ease;
+  display: block;
+  height: 8px;
+  line-height: 8px;
+}
+
+.triangle-up.active,
+.triangle-down.active {
+  color: #3b82f6;
+  font-weight: bold;
+}
+
 /* 粘性表头在滚动时的增强效果 */
 .table-wrapper::-webkit-scrollbar {
   width: 8px;
@@ -466,11 +528,11 @@ onUnmounted(() => {
 }
 
 .tasks-table tr.highlight {
-  background-color: #fef3c7;
+  background-color: #fffbeb;
 }
 
 .tasks-table tr.highlight:hover {
-  background-color: #fde68a;
+  background-color: #fef3c7;
 }
 
 .keywords-cell {

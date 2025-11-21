@@ -54,6 +54,31 @@
           @toggle="handleTagToggle(tag.keyword)"
         />
       </div>
+      <div class="pagination-controls">
+        <button 
+          class="btn-pagination" 
+          :disabled="currentPage === 1"
+          @click="goToPreviousPage"
+        >
+          上一页
+        </button>
+        <div class="page-size-selector">
+          <label for="pageSize">每页显示：</label>
+          <select id="pageSize" v-model="pageSize" @change="handlePageSizeChange" class="page-size-select">
+            <option :value="3">3 条</option>
+            <option :value="5">5 条</option>
+            <option :value="10">10 条</option>
+          </select>
+        </div>
+        <span class="page-info">第 {{ currentPage }} / {{ totalPages }} 页</span>
+        <button 
+          class="btn-pagination" 
+          :disabled="currentPage === totalPages"
+          @click="goToNextPage"
+        >
+          下一页
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -73,18 +98,52 @@ const router = useRouter()
 
 // 最近搜索状态
 const recentSearches = ref<Array<{id: number, title: string}>>([])
+const currentPage = ref(1)
+const pageSize = ref(3)
+const totalPages = ref(1)
+const totalRecords = ref(0)
 
-// 获取最近搜索
-const fetchRecentSearches = async () => {
+// 计算当前页记录数
+const currentRecordCount = computed(() => recentSearches.value.length)
+
+// 获取最近搜索（使用分页参数，一行显示多个）
+const fetchRecentSearches = async (page: number = 1) => {
   try {
-    const searchHistory = await apiService.getSearchHistory(5) 
-    recentSearches.value = searchHistory.map(item => ({
+    // 获取带分页信息的完整响应
+    const response = await apiService.getSearchHistoryWithPagination(page, pageSize.value)
+    
+    recentSearches.value = response.data.list.map(item => ({
       id: item.id,
-      title: item.keyword
+      title: item.searchWord
     }))
+    
+    // 更新分页信息
+    currentPage.value = response.data.pageNumber
+    totalPages.value = response.data.pages
+    totalRecords.value = response.data.total
   } catch (error) {
     console.error('获取最近搜索失败:', error)
   }
+}
+
+// 上一页
+const goToPreviousPage = () => {
+  if (currentPage.value > 1) {
+    fetchRecentSearches(currentPage.value - 1)
+  }
+}
+
+// 下一页
+const goToNextPage = () => {
+  if (currentPage.value < totalPages.value) {
+    fetchRecentSearches(currentPage.value + 1)
+  }
+}
+
+// 处理每页显示数量变化
+const handlePageSizeChange = () => {
+  // 重置到第一页
+  fetchRecentSearches(1)
 }
 
 // 搜索相关状态
@@ -146,7 +205,6 @@ watch(searchQuery, (newQuery) => {
     return
   }
   
-  // 延迟400ms后提取关键词，避免频繁请求
   extractTimer = setTimeout(() => {
     extractKeywords(newQuery)
   }, 300)
@@ -161,17 +219,17 @@ const handleSearch = async () => {
     const keywords = extractedKeywords.value.length > 0 ? extractedKeywords.value : []
     const response = await apiService.submitSearch(searchQuery.value.trim(), keywords)
     
-    if (response.code === 0) {
+    if (response.code === 0 && response.success) {
       // 跳转到任务页面
       router.push({
         name: 'tasks',
-        query: { taskId: response.data.taskId.toString() }
+        query: { taskId: response.data.toString() }
       })
       
       // 刷新最近搜索列表
       await fetchRecentSearches()
     } else {
-      console.error('搜索任务创建失败:', response.msg)
+      console.error('搜索任务创建失败:', response.message)
     }
   } catch (error) {
     console.error('搜索失败:', error)
@@ -214,17 +272,17 @@ const searchWithKeywords = async () => {
     const searchTerm = searchQuery.value.trim() || extractedKeywords.value[0]
     const response = await apiService.submitSearch(searchTerm, extractedKeywords.value)
     
-    if (response.code === 0) {
+    if (response.code === 0 && response.success) {
       // 跳转到任务页面
       router.push({
         name: 'tasks',
-        query: { taskId: response.data.taskId.toString() }
+        query: { taskId: response.data.toString() }
       })
       
       // 刷新最近搜索列表
       await fetchRecentSearches()
     } else {
-      console.error('搜索任务创建失败:', response.msg)
+      console.error('搜索任务创建失败:', response.message)
     }
   } catch (error) {
     console.error('搜索失败:', error)
@@ -238,11 +296,10 @@ const handleTagToggle = (keyword: string) => {
   // 找到对应的搜索ID
   const searchItem = recentSearches.value.find(search => search.title === keyword)
   if (searchItem) {
-    // 直接跳转到搜索结果页面
+    // 直接跳转到搜索结果页面，只传递taskId，不传递keyword
     router.push({
       name: 'search-results',
       query: {
-        keyword: keyword,
         taskId: searchItem.id.toString()
       }
     })
@@ -295,6 +352,15 @@ onUnmounted(() => {
 .tag-section {
   width: 100%;
   max-width: 800px;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: box-shadow 0.3s ease;
+}
+
+.tag-section:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 .tag-section-header {
@@ -505,8 +571,107 @@ onUnmounted(() => {
   gap: 10px;
   flex-wrap: wrap;
   justify-content: center;
+  min-height: 40px;
 }
 
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 20px;
+  padding: 14px 20px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border-radius: 12px;
+  flex-wrap: wrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.page-size-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+  transition: all 0.3s ease;
+}
+
+.page-size-selector:hover {
+  border-color: #667eea;
+  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.1);
+}
+
+.page-size-selector label {
+  font-weight: 500;
+  color: #555555;
+  font-size: 13px;
+}
+
+.page-size-select {
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #667eea;
+  background-color: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+.page-size-select:hover {
+  background-color: #f5f7ff;
+}
+
+.page-size-select:focus {
+  background-color: #f5f7ff;
+}
+
+.page-info {
+  font-weight: 600;
+  font-size: 14px;
+  color: #667eea;
+  min-width: 90px;
+  text-align: center;
+  padding: 6px 14px;
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+}
+
+.btn-pagination {
+  padding: 7px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  min-width: 80px;
+  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.25);
+}
+
+.btn-pagination:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.btn-pagination:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.25);
+}
+
+.btn-pagination:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: linear-gradient(135deg, #d1d5db 0%, #9ca3af 100%);
+  box-shadow: none;
+}
 
 @media (max-width: 768px) {
   .main-title {
@@ -519,10 +684,46 @@ onUnmounted(() => {
     gap: 12px;
   }
   
+  .tag-section {
+    padding: 20px;
+    margin: 0 10px;
+  }
+
   .tag-section-header {
     flex-direction: column;
     align-items: center;
     gap: 8px;
+  }
+
+  .pagination-controls {
+    gap: 10px;
+    padding: 12px 16px;
+  }
+
+  .page-size-selector {
+    width: auto;
+    padding: 5px 10px;
+  }
+
+  .page-size-selector label {
+    font-size: 12px;
+  }
+
+  .page-size-select {
+    font-size: 12px;
+    padding: 3px 8px;
+  }
+
+  .page-info {
+    font-size: 12px;
+    min-width: 75px;
+    padding: 5px 12px;
+  }
+
+  .btn-pagination {
+    padding: 6px 14px;
+    font-size: 12px;
+    min-width: 70px;
   }
   
   .keywords-section {

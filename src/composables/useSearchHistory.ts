@@ -24,7 +24,8 @@ export function useSearchHistory() {
     error.value = null
     
     try {
-      const history = await apiService.getSearchHistory(10)
+      // 使用新的分页参数：第1页，每页10条
+      const history = await apiService.getSearchHistory(1, 10)
       searchHistory.value = history
     } catch (err) {
       console.warn('Failed to fetch search history from backend:', err)
