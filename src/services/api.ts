@@ -296,7 +296,7 @@ class ApiService {
         pageIndex: pageIndex.toString(),
         pageSize: pageSize.toString()
       })
-      const response = await this.request<RecentSearchResponse>(`/search/recent?${params}`)
+      const response = await this.request<RecentSearchResponse>(`/task/recent?${params}`)
 
       return response.data.list.map(item => ({
         id: item.id,
@@ -318,7 +318,7 @@ class ApiService {
         pageIndex: pageIndex.toString(),
         pageSize: pageSize.toString()
       })
-      return await this.request<RecentSearchResponse>(`/search/recent?${params}`)
+      return await this.request<RecentSearchResponse>(`/task/recent?${params}`)
     } catch (error) {
       console.warn('Backend not available, using mock data')
       return this.getMockRecentSearchResponse(pageIndex, pageSize)
@@ -381,7 +381,7 @@ class ApiService {
         pageIndex: pageIndex.toString(),
         pageSize: pageSize.toString()
       })
-      const response = await this.request<RecentSearchResponse>(`/search/recent?${params}`)
+      const response = await this.request<RecentSearchResponse>(`/task/recent?${params}`)
       console.log('✅ 最近搜索接口调用成功:', response)
       return response
     } catch (error) {
@@ -477,7 +477,7 @@ class ApiService {
         tags
       }
 
-      return await this.request<SearchResponse>('/search/submit', {
+      return await this.request<SearchResponse>('/task/submit', {
         method: 'POST',
         body: JSON.stringify(searchRequest)
       })
@@ -558,7 +558,7 @@ class ApiService {
         requestBody.orderId = params.orderId
       }
 
-      const response = await this.request<TasksResponse>('/search/tasks', {
+      const response = await this.request<TasksResponse>('/task/tasks', {
         method: 'POST',
         body: JSON.stringify(requestBody)
       })
@@ -582,7 +582,7 @@ class ApiService {
   // 查询任务状态
   async getTaskStatus(taskId: number): Promise<TaskStatusResponse> {
     try {
-      return await this.request<TaskStatusResponse>(`/search/state?id=${taskId}`)
+      return await this.request<TaskStatusResponse>(`/task/state?id=${taskId}`)
     } catch (error) {
       console.warn('Backend not available, using mock status')
       return this.getMockTaskStatus(taskId)
@@ -592,7 +592,7 @@ class ApiService {
   // 删除任务
   async deleteTask(id: number): Promise<TaskDeleteResponse> {
     try {
-      return await this.request<TaskDeleteResponse>(`/search/delete?id=${id}`, {
+      return await this.request<TaskDeleteResponse>(`/task/delete?id=${id}`, {
         method: 'DELETE'
       })
     } catch (error) {
@@ -604,7 +604,7 @@ class ApiService {
   // 取消任务
   async cancelTask(id: number): Promise<TaskCancelResponse> {
     try {
-      return await this.request<TaskCancelResponse>(`/search/cancel?id=${id}`)
+      return await this.request<TaskCancelResponse>(`/task/cancel?id=${id}`)
     } catch (error) {
       console.warn('Backend not available, using mock cancel')
       return {
@@ -620,7 +620,7 @@ class ApiService {
   // 重启任务
   async restartTask(id: number): Promise<TaskRestartResponse> {
     try {
-      return await this.request<TaskRestartResponse>(`/search/restart?id=${id}`)
+      return await this.request<TaskRestartResponse>(`/task/restart?id=${id}`)
     } catch (error) {
       console.warn('Backend not available, using mock restart')
       return {
@@ -636,7 +636,7 @@ class ApiService {
   // 获取任务关键词
   async getTaskKeywords(id: number): Promise<TaskKeywordsResponse> {
     try {
-      return await this.request<TaskKeywordsResponse>(`/search/keywords?id=${id}`)
+      return await this.request<TaskKeywordsResponse>(`/task/keywords?id=${id}`)
     } catch (error) {
       console.warn('Backend not available, using mock keywords')
       return this.getMockTaskKeywords(id)
