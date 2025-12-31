@@ -1,5 +1,13 @@
 <template>
-  <div class="search-results-container">
+  <div class="search-results-wrapper">
+    <!-- 动态背景装饰 -->
+    <div class="background-decoration">
+      <div class="shape shape-1"></div>
+      <div class="shape shape-2"></div>
+      <div class="shape shape-3"></div>
+    </div>
+
+    <div class="search-results-container">
     <!-- 页面标题 -->
     <div class="page-header">
       <h1 class="page-title">检索信息页</h1>
@@ -25,25 +33,58 @@
           <thead>
             <tr>
               <th class="col-select">
-                <input 
-                  type="checkbox" 
-                  v-model="selectAll" 
-                  @change="handleSelectAll"
-                  class="checkbox"
-                />
-                选择
+                <div class="select-header">
+                  <input 
+                    type="checkbox" 
+                    v-model="selectAll" 
+                    @change="handleSelectAll"
+                    class="checkbox"
+                  />
+                  <span>选择</span>
+                </div>
               </th>
               <th class="col-title">论文标题</th>
               <th class="col-authors">作者列表</th>
-              <th class="col-year">发表年份</th>
+              <th class="col-year sortable" @click="handleSort('published_date')">
+                <div class="sort-header">
+                  <span>发表年份</span>
+                  <span class="sort-icon">
+                    <div class="sort-arrows">
+                      <i class="sort-arrow sort-up" :class="{ 'active': getSortDirection('published_date') === 'asc' }"></i>
+                      <i class="sort-arrow sort-down" :class="{ 'active': getSortDirection('published_date') === 'desc' }"></i>
+                    </div>
+                  </span>
+                </div>
+              </th>
               <th class="col-journal">期刊或会议名称</th>
               <th class="col-venue-type">类型</th>
-              <th class="col-tags">标签</th>
+              <th class="col-tags sortable" @click="handleSort('tags')">
+                <div class="sort-header">
+                  <span>标签</span>
+                  <span class="sort-icon">
+                    <div class="sort-arrows">
+                      <i class="sort-arrow sort-up" :class="{ 'active': getSortDirection('tags') === 'asc' }"></i>
+                      <i class="sort-arrow sort-down" :class="{ 'active': getSortDirection('tags') === 'desc' }"></i>
+                    </div>
+                  </span>
+                </div>
+              </th>
               <th class="col-keywords">关键词</th>
               <th class="col-abstract">原文摘要</th>
               <th class="col-summary">整理后摘要</th>
-              <th class="col-citations">引用次数</th>
-          <th class="col-link">论文链接</th>
+              <th class="col-citations sortable" @click="handleSort('citations')">
+                <div class="sort-header">
+                  <span>引用次数</span>
+                  <span class="sort-icon">
+                    <div class="sort-arrows">
+                      <i class="sort-arrow sort-up" :class="{ 'active': getSortDirection('citations') === 'asc' }"></i>
+                      <i class="sort-arrow sort-down" :class="{ 'active': getSortDirection('citations') === 'desc' }"></i>
+                    </div>
+                  </span>
+                </div>
+              </th>
+              <th class="col-link">官网链接</th>
+              <th class="col-pdf">PDF链接</th>
             </tr>
           </thead>
           <tbody>
@@ -155,12 +196,12 @@
               <td class="col-summary">
                 <div class="summary-content">
                   <p class="summary-text">
-                    <span v-if="paper.summary && paper.summary.length > 100">
-                      {{ truncateText(paper.summary, 80) }}
+                    <span v-if="paper.summary && cleanMarkdown(paper.summary).length > 100">
+                      {{ truncateText(cleanMarkdown(paper.summary), 80) }}
                       <span class="expand-dots" @click="showSummaryModal(paper)">...</span>
                     </span>
                     <span v-else>
-                      {{ paper.summary }}
+                      {{ cleanMarkdown(paper.summary) }}
                     </span>
                   </p>
                 </div>
@@ -181,6 +222,19 @@
                   >
                     🔗 原文
                   </a>
+                  <span v-else class="no-data">-</span>
+                </div>
+              </td>
+              <td class="col-pdf">
+                <div class="pdf-link">
+                  <button 
+                    v-if="paper.pdfUrl" 
+                    @click="previewPDF(paper.pdfUrl)"
+                    class="pdf-btn"
+                    title="预览PDF"
+                  >
+                    📄 下载PDF
+                  </button>
                   <span v-else class="no-data">-</span>
                 </div>
               </td>
@@ -205,6 +259,7 @@
               @change="handlePageSizeChange"
               class="page-size-select"
             >
+              <option value="5">5条</option>
               <option value="10">10条</option>
               <option value="20">20条</option>
               <option value="50">50条</option>
@@ -264,26 +319,57 @@
 
     <!-- 摘要模态窗口 -->
     <div v-if="showModal" class="modal-overlay" @click="closeModal">
-      <div class="modal-content" @click.stop>
-        <div class="modal-header">
+      <div 
+        ref="modalRef"
+        class="modal-content resizable-modal" 
+        @click.stop
+        :style="{
+          left: modalPosition.x + 'px',
+          top: modalPosition.y + 'px',
+          width: modalSize.width + 'px',
+          height: modalSize.height + 'px'
+        }"
+      >
+        <div 
+          class="modal-header draggable-header" 
+          @mousedown="startDrag"
+        >
           <h3>{{ modalTitle }}</h3>
           <button class="modal-close" @click="closeModal">&times;</button>
         </div>
         <div class="modal-body">
-          <p class="modal-text">{{ modalContent }}</p>
+          <div class="modal-text markdown-body" v-html="renderedModalContent"></div>
         </div>
         <div class="modal-footer">
           <button class="btn btn-primary" @click="closeModal">关闭</button>
         </div>
+        
+        <!-- 调整大小的拖拽点 -->
+        <div class="resize-handle resize-right" @mousedown="startResize($event, 'right')"></div>
+        <div class="resize-handle resize-bottom" @mousedown="startResize($event, 'bottom')"></div>
+        <div class="resize-handle resize-corner" @mousedown="startResize($event, 'corner')"></div>
       </div>
+    </div>
+
+    <!-- 错误提示 -->
+    <div v-if="showError" class="error-notification" @click="closeError">
+      <div class="error-content">
+        <span class="error-icon">⚠️</span>
+        <span class="error-text">{{ errorMessage }}</span>
+        <button class="error-close" @click.stop="closeError">&times;</button>
+      </div>
+    </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { apiService, type Paper } from '@/services/api'
+import { apiService, type Paper, type OrderInfo } from '@/services/api'
+
+import { ossService } from '@/services/ossService'
+import { marked } from 'marked'
 
 // 路由相关
 const route = useRoute()
@@ -301,8 +387,8 @@ const fetchTaskKeywords = async () => {
   try {
     const response = await apiService.getTaskKeywords(taskId.value)
     if (response.code === 0 && response.success && response.data) {
-      // 将逗号分隔的字符串转换为数组
-      searchKeywords.value = response.data.split(',').map(k => k.trim()).filter(k => k)
+      // 直接使用返回的数组
+      searchKeywords.value = response.data
       console.log('获取到的关键词:', searchKeywords.value)
     }
   } catch (error) {
@@ -330,18 +416,74 @@ const isLoading = ref(false)
 const totalResults = ref(0)
 const totalPages = ref(0)
 const currentPage = ref(1)
-const pageSize = ref(20)
-const orderWord = ref('published_date') // 排序字段
-const orderId = ref('1') // 排序方式: "0"=asc, "1"=desc
+const pageSize = ref(5)
+
+// 多字段排序状态
+const orderInfo = ref<OrderInfo[]>([
+  { orderWord: 'published_date', orderId: 1 }, // 发表年份降序
+  { orderWord: 'citations', orderId: 1 },      // 引用次数降序
+  { orderWord: 'tags', orderId: 1 }            // 标签降序
+])
 
 // 选择状态
-const selectedPapers = ref<number[]>([])
+const selectedPapers = ref<string[]>([])
 const selectAll = ref(false)
+const isGlobalSelectAll = ref(false) // 全局全选模式
 
 // 模态窗口状态
 const showModal = ref(false)
 const modalTitle = ref('')
 const modalContent = ref('')
+const modalRef = ref<HTMLElement | null>(null)
+
+// 模态窗口位置和大小
+const modalPosition = ref({ x: 0, y: 0 })
+const modalSize = ref({ width: 600, height: 500 })
+
+// 渲染 Markdown 内容
+const renderedModalContent = computed(() => {
+  if (!modalContent.value) return ''
+  return marked.parse(modalContent.value)
+})
+
+// 拖拽状态
+const isDragging = ref(false)
+const dragStart = ref({ x: 0, y: 0 })
+
+// 调整大小状态
+const isResizing = ref(false)
+const resizeType = ref<'right' | 'bottom' | 'corner' | null>(null)
+const resizeStart = ref({ x: 0, y: 0, width: 0, height: 0 })
+
+// 错误提示状态
+const showError = ref(false)
+const errorMessage = ref('')
+let errorTimer: number | null = null
+
+// 显示错误提示
+const showErrorMessage = (message: string, duration = 3000) => {
+  errorMessage.value = message
+  showError.value = true
+  
+  // 清除之前的定时器
+  if (errorTimer) {
+    clearTimeout(errorTimer)
+  }
+  
+  // 自动隐藏
+  errorTimer = setTimeout(() => {
+    showError.value = false
+  }, duration) as unknown as number
+}
+
+// 关闭错误提示
+const closeError = () => {
+  showError.value = false
+  if (errorTimer) {
+    clearTimeout(errorTimer)
+    errorTimer = null
+  }
+}
 
 // 计算属性
 
@@ -363,6 +505,53 @@ const truncateText = (text: string, maxLength: number) => {
   return text.substring(0, maxLength)
 }
 
+// 清除 Markdown 符号
+const cleanMarkdown = (text: string) => {
+  if (!text) return ''
+  // 移除 # 符号 (标题)
+  return text.replace(/#{1,6}\s?/g, '').trim()
+}
+
+// 排序处理函数
+const handleSort = (field: string) => {
+  // 查找当前字段的排序信息
+  const currentSortIndex = orderInfo.value.findIndex(info => info.orderWord === field)
+  
+  if (currentSortIndex !== -1) {
+    // 如果字段已存在，切换排序方向
+    orderInfo.value[currentSortIndex].orderId = orderInfo.value[currentSortIndex].orderId === 1 ? 0 : 1
+  } else {
+    // 如果字段不存在，添加到排序数组的开头（最高优先级）
+    orderInfo.value.unshift({ orderWord: field, orderId: 1 }) // 默认降序
+  }
+  
+  // 重新获取数据
+  currentPage.value = 1 // 排序后回到第一页
+  fetchSearchResults()
+}
+
+// 获取排序方向
+const getSortDirection = (field: string): string | null => {
+  const sortInfo = orderInfo.value.find(info => info.orderWord === field)
+  
+  if (!sortInfo) {
+    return null // 无排序
+  }
+  
+  return sortInfo.orderId === 1 ? 'desc' : 'asc'
+}
+
+// 获取排序图标样式（保留兼容性）
+const getSortIcon = (field: string): string => {
+  const sortInfo = orderInfo.value.find(info => info.orderWord === field)
+  
+  if (!sortInfo) {
+    return 'sort-none' // 无排序
+  }
+  
+  return sortInfo.orderId === 1 ? 'sort-desc' : 'sort-asc'
+}
+
 // 影响因子等级判断函数
 const getImpactFactorClass = (impactFactor: number) => {
   if (impactFactor >= 10) {
@@ -382,6 +571,7 @@ const getImpactFactorClass = (impactFactor: number) => {
 const showAbstractModal = (paper: Paper) => {
   modalTitle.value = `原文摘要 - ${paper.title}`
   modalContent.value = paper.abstract
+  resetModalPosition()
   showModal.value = true
 }
 
@@ -389,6 +579,7 @@ const showAbstractModal = (paper: Paper) => {
 const showSummaryModal = (paper: Paper) => {
   modalTitle.value = `整理后摘要 - ${paper.title}`
   modalContent.value = paper.summary
+  resetModalPosition()
   showModal.value = true
 }
 
@@ -397,13 +588,116 @@ const closeModal = () => {
   showModal.value = false
   modalTitle.value = ''
   modalContent.value = ''
+  // 重置位置和大小
+  resetModalPosition()
+}
+
+// 重置模态窗口位置（居中）
+const resetModalPosition = () => {
+  const windowWidth = window.innerWidth
+  const windowHeight = window.innerHeight
+  modalPosition.value = {
+    x: (windowWidth - modalSize.value.width) / 2,
+    y: (windowHeight - modalSize.value.height) / 2
+  }
+}
+
+// 开始拖拽
+const startDrag = (e: MouseEvent) => {
+  isDragging.value = true
+  dragStart.value = {
+    x: e.clientX - modalPosition.value.x,
+    y: e.clientY - modalPosition.value.y
+  }
+  
+  document.addEventListener('mousemove', onDrag)
+  document.addEventListener('mouseup', stopDrag)
+  e.preventDefault()
+}
+
+// 拖拽中
+const onDrag = (e: MouseEvent) => {
+  if (!isDragging.value) return
+  
+  modalPosition.value = {
+    x: e.clientX - dragStart.value.x,
+    y: e.clientY - dragStart.value.y
+  }
+}
+
+// 停止拖拽
+const stopDrag = () => {
+  isDragging.value = false
+  document.removeEventListener('mousemove', onDrag)
+  document.removeEventListener('mouseup', stopDrag)
+}
+
+// 开始调整大小
+const startResize = (e: MouseEvent, type: 'right' | 'bottom' | 'corner') => {
+  isResizing.value = true
+  resizeType.value = type
+  resizeStart.value = {
+    x: e.clientX,
+    y: e.clientY,
+    width: modalSize.value.width,
+    height: modalSize.value.height
+  }
+  
+  document.addEventListener('mousemove', onResize)
+  document.addEventListener('mouseup', stopResize)
+  e.preventDefault()
+  e.stopPropagation()
+}
+
+// 调整大小中
+const onResize = (e: MouseEvent) => {
+  if (!isResizing.value || !resizeType.value) return
+  
+  const deltaX = e.clientX - resizeStart.value.x
+  const deltaY = e.clientY - resizeStart.value.y
+  
+  if (resizeType.value === 'right' || resizeType.value === 'corner') {
+    modalSize.value.width = Math.max(400, resizeStart.value.width + deltaX)
+  }
+  
+  if (resizeType.value === 'bottom' || resizeType.value === 'corner') {
+    modalSize.value.height = Math.max(300, resizeStart.value.height + deltaY)
+  }
+}
+
+// 停止调整大小
+const stopResize = () => {
+  isResizing.value = false
+  resizeType.value = null
+  document.removeEventListener('mousemove', onResize)
+  document.removeEventListener('mouseup', stopResize)
 }
 
 // 切换作者列表展开状态
-const toggleAuthors = (paperId: number) => {
+const toggleAuthors = (paperId: string) => {
   const paper = papers.value.find(p => p.id === paperId)
   if (paper) {
     paper.authorsExpanded = !paper.authorsExpanded
+  }
+}
+
+// 预览 PDF（在新窗口打开）
+const previewPDF = async (pdfUrl: string) => {
+  try {
+    isLoading.value = true
+    await ossService.previewPDF(pdfUrl)
+  } catch (error: any) {
+    console.error('预览 PDF 失败:', error)
+    const errorMsg = error?.message || '预览 PDF 失败'
+    if (errorMsg.includes('accessKeyId') || errorMsg.includes('accessKeySecret')) {
+      showErrorMessage('OSS 凭证获取失败，请检查后端接口配置')
+    } else if (errorMsg.includes('凭证字段不完整')) {
+      showErrorMessage('OSS 凭证不完整，请检查后端返回数据')
+    } else {
+      showErrorMessage('预览 PDF 失败，请稍后重试')
+    }
+  } finally {
+    isLoading.value = false
   }
 }
 
@@ -418,8 +712,7 @@ const fetchSearchResults = async () => {
       taskId.value,
       currentPage.value,
       pageSize.value,
-      orderWord.value,
-      orderId.value
+      orderInfo.value
     )
     
     // 转换数据格式以匹配表格需求
@@ -440,11 +733,51 @@ const fetchSearchResults = async () => {
   }
 }
 
-// 全选处理
-const handleSelectAll = () => {
+// 获取所有页面的论文ID列表
+const getAllPaperIds = async (): Promise<string[]> => {
+  const allPaperIds: string[] = []
+  
+  try {
+    // 遍历所有页面获取论文ID
+    for (let page = 1; page <= totalPages.value; page++) {
+      const result = await apiService.searchPapers(
+        taskId.value,
+        page,
+        pageSize.value,
+        orderInfo.value
+      )
+      
+      const pageIds = result.papers.map(paper => paper.id.toString())
+      allPaperIds.push(...pageIds)
+    }
+  } catch (error) {
+    console.error('获取所有论文ID失败:', error)
+  }
+  
+  return allPaperIds
+}
+
+// 全局全选处理
+const handleSelectAll = async () => {
   if (selectAll.value) {
-    selectedPapers.value = papers.value.map(paper => paper.id)
+    // 全选：选择所有页面的所有论文
+    isGlobalSelectAll.value = true
+    isLoading.value = true
+    
+    try {
+      const allPaperIds = await getAllPaperIds()
+      selectedPapers.value = [...new Set(allPaperIds)] // 去重
+    } catch (error) {
+      console.error('全选操作失败:', error)
+      // 如果失败，至少选中当前页
+      const currentPageIds = papers.value.map(paper => paper.id)
+      selectedPapers.value = [...new Set([...selectedPapers.value, ...currentPageIds])]
+    } finally {
+      isLoading.value = false
+    }
   } else {
+    // 取消全选：清空所有选择
+    isGlobalSelectAll.value = false
     selectedPapers.value = []
   }
 }
@@ -477,7 +810,51 @@ const batchExport = () => {
 const clearSelection = () => {
   selectedPapers.value = []
   selectAll.value = false
+  isGlobalSelectAll.value = false
 }
+
+// 更新当前页全选状态
+const updateSelectAllStatus = () => {
+  if (papers.value.length === 0) {
+    selectAll.value = false
+    return
+  }
+  
+  if (isGlobalSelectAll.value) {
+    // 全局全选模式下，全选复选框始终选中
+    selectAll.value = true
+  } else {
+    // 普通模式下，检查当前页是否全选
+    const currentPageIds = papers.value.map(paper => paper.id)
+    const allCurrentPageSelected = currentPageIds.every(id => selectedPapers.value.includes(id))
+    selectAll.value = allCurrentPageSelected
+  }
+}
+
+// 在全局全选模式下，切换页面时自动选中当前页所有论文
+const handlePageChange = () => {
+  if (isGlobalSelectAll.value && papers.value.length > 0) {
+    const currentPageIds = papers.value.map(paper => paper.id)
+    // 将当前页的论文添加到选择列表
+    const newSelections = [...new Set([...selectedPapers.value, ...currentPageIds])]
+    selectedPapers.value = newSelections
+  }
+  updateSelectAllStatus()
+}
+
+// 监听单个论文的选择变化
+watch(selectedPapers, () => {
+  // 如果有任何论文被取消选择，退出全局全选模式
+  if (isGlobalSelectAll.value && selectedPapers.value.length < totalResults.value) {
+    isGlobalSelectAll.value = false
+  }
+  updateSelectAllStatus()
+})
+
+// 监听 papers 变化（页面切换）
+watch(papers, () => {
+  handlePageChange()
+}, { immediate: true })
 
 // 组件挂载时获取数据
 onMounted(async () => {
@@ -491,13 +868,87 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.search-results-wrapper {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  position: relative;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* 动态背景装饰 */
+.background-decoration {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  z-index: 0;
+  pointer-events: none;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.shape {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  opacity: 0.5;
+  animation: float 20s ease-in-out infinite;
+  will-change: transform;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+}
+
+.shape-1 {
+  width: 400px;
+  height: 400px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  top: -100px;
+  left: -100px;
+  animation-delay: 0s;
+}
+
+.shape-2 {
+  width: 350px;
+  height: 350px;
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  top: 50%;
+  right: -100px;
+  animation-delay: 7s;
+}
+
+.shape-3 {
+  width: 300px;
+  height: 300px;
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  bottom: -100px;
+  left: 50%;
+  animation-delay: 14s;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  33% {
+    transform: translate3d(50px, -50px, 0) scale(1.1);
+  }
+  66% {
+    transform: translate3d(-50px, 50px, 0) scale(0.9);
+  }
+}
+
 .search-results-container {
   width: 100%;
   max-width: 1920px;
   margin: 0 auto;
   padding: 30px;
   min-height: 100vh;
-  background-color: #f5f5f5;
+  position: relative;
+  z-index: 1;
+  /* background-color: #f5f5f5; */
 }
 
 .page-header {
@@ -507,11 +958,16 @@ onMounted(async () => {
 }
 
 .page-title {
-  font-size: 24px;
+  font-size: 38px;
   font-weight: 600;
-  color: #333333;
-  margin: 0 0 12px 0;
+  line-height: 1.2; 
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   text-align: center;
+  margin: 0 0 18px 0;
+  letter-spacing: 4px; 
 }
 
 .search-info {
@@ -531,7 +987,7 @@ onMounted(async () => {
 }
 
 .keywords-label {
-  font-weight: 500;
+  font-weight: 700;
   color: #333333;
 }
 
@@ -542,8 +998,10 @@ onMounted(async () => {
   color: #1565c0;
   border-radius: 12px;
   font-size: 12px;
-  font-weight: 500;
-  border: 1px solid #bbdefb;
+  font-weight: 600;
+  border: none;
+  box-shadow: 0 2px 6px rgba(0, 172, 193, 0.3);
+  transition: all 0.3s ease;
 }
 
 .search-keyword {
@@ -551,7 +1009,8 @@ onMounted(async () => {
 }
 
   .result-count {
-    color: #0088ff;
+    color: #00838f;
+    font-weight: 600;
   }
 
 .table-container {
@@ -560,6 +1019,7 @@ onMounted(async () => {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   overflow: hidden;
   margin-bottom: 24px;
+  backdrop-filter: blur(10px);
 }
 
 .table-wrapper {
@@ -603,11 +1063,17 @@ onMounted(async () => {
   word-wrap: break-word;
 }
 
-/* 动态列宽设置 */
 .col-select { 
   width: auto; 
-  min-width: 60px; 
+  min-width: 80px; 
   text-align: center;
+}
+
+.select-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 .col-title { 
   width: auto; 
@@ -666,6 +1132,11 @@ onMounted(async () => {
   min-width: 100px; 
   text-align: center;
 }
+.col-pdf { 
+  width: auto; 
+  min-width: 100px; 
+  text-align: center;
+}
 
 .results-table tr:hover {
   background-color: #f8f9fa;
@@ -678,7 +1149,7 @@ onMounted(async () => {
 
 .checkbox {
   width: 16px;
-  height: 16px;
+  height: 13px;
   cursor: pointer;
 }
 
@@ -743,8 +1214,8 @@ onMounted(async () => {
 
 .btn-outline {
   background-color: transparent;
-  color: #666666;
-  border-color: #d0d7de;
+  color: #6b6767;
+  border-color: #476581;
 }
 
 .btn-outline:hover {
@@ -1316,6 +1787,22 @@ onMounted(async () => {
   text-decoration: underline;
 }
 
+/* PDF链接 */
+.pdf-btn {
+  color: #d32f2f;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pdf-btn:hover {
+  text-decoration: underline;
+  color: #b71c1c;
+}
+
 /* 无数据显示 */
 .no-data {
   color: #999;
@@ -1329,7 +1816,7 @@ onMounted(async () => {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: transparent;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -1350,12 +1837,18 @@ onMounted(async () => {
   background: white;
   border-radius: 8px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-  max-width: 800px;
-  width: 90%;
-  max-height: 80vh;
   display: flex;
   flex-direction: column;
   animation: slideUp 0.3s ease-out;
+}
+
+/* 可调整大小的模态窗口 */
+.resizable-modal {
+  position: fixed;
+  min-width: 400px;
+  min-height: 300px;
+  max-width: 90vw;
+  max-height: 90vh;
 }
 
 @keyframes slideUp {
@@ -1375,6 +1868,12 @@ onMounted(async () => {
   align-items: center;
   padding: 20px 24px;
   border-bottom: 1px solid #e8e8e8;
+}
+
+/* 可拖拽的标题栏 */
+.draggable-header {
+  cursor: move;
+  user-select: none;
 }
 
 .modal-header h3 {
@@ -1419,13 +1918,55 @@ onMounted(async () => {
 
 .modal-text {
   font-size: 14px;
-  line-height: 1.8;
+  line-height: 1.6;
   color: #333;
-  white-space: pre-wrap;
-  word-wrap: break-word;
+  text-align: left;
+}
+
+/* Markdown 样式适配 */
+.markdown-body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+.markdown-body p {
+  margin-bottom: 16px;
+}
+
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 {
+  margin-top: 24px;
+  margin-bottom: 16px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.markdown-body ul, .markdown-body ol {
+  padding-left: 2em;
+  margin-bottom: 16px;
+}
+
+.markdown-body code {
+  padding: 0.2em 0.4em;
   margin: 0;
-  text-align: justify;
-  text-justify: inter-word;
+  font-size: 85%;
+  background-color: #f6f8fa;
+  border-radius: 6px;
+}
+
+.markdown-body pre {
+  padding: 16px;
+  overflow: auto;
+  font-size: 85%;
+  line-height: 1.45;
+  background-color: #f6f8fa;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.markdown-body blockquote {
+  padding: 0 1em;
+  color: #656d76;
+  border-left: 0.25em solid #d0d7de;
+  margin-bottom: 16px;
 }
 
 .modal-footer {
@@ -1437,6 +1978,116 @@ onMounted(async () => {
 
 .modal-footer .btn {
   min-width: 80px;
+}
+
+/* 调整大小手柄 */
+.resize-handle {
+  position: absolute;
+  background: transparent;
+  z-index: 10;
+}
+
+.resize-right {
+  right: 0;
+  top: 0;
+  width: 8px;
+  height: 100%;
+  cursor: ew-resize;
+}
+
+.resize-bottom {
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.resize-corner {
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+}
+
+.resize-corner::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid #ccc;
+  border-bottom: 2px solid #ccc;
+}
+
+/* 错误提示样式 */
+.error-notification {
+  position: fixed;
+  top: 80px;
+  right: 24px;
+  z-index: 3000;
+  animation: slideInRight 0.3s ease-out;
+  cursor: pointer;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.error-content {
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+  color: white;
+  padding: 16px 20px;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(255, 107, 107, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 320px;
+  max-width: 480px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.error-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.error-text {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.error-close {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+  flex-shrink: 0;
+}
+
+.error-close:hover {
+  background-color: rgba(255, 255, 255, 0.2);
 }
 
 /* 移动端适配 */
@@ -1453,5 +2104,125 @@ onMounted(async () => {
   .modal-text {
     font-size: 13px;
   }
+}
+
+/* 排序相关样式 */
+.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s ease;
+}
+
+.sortable:hover {
+  background-color: #f8f9fa;
+}
+
+.sort-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+}
+
+.sort-icon {
+  display: flex;
+  align-items: center;
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
+}
+
+.sortable:hover .sort-icon {
+  opacity: 1;
+}
+
+/* 双箭头容器 */
+.sort-arrows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+}
+
+/* 箭头基础样式 */
+.sort-arrow {
+  width: 0;
+  height: 0;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  transition: all 0.2s ease;
+  opacity: 0.3;
+}
+
+/* 上箭头 */
+.sort-arrow.sort-up {
+  border-bottom: 4px solid #666;
+  border-top: none;
+}
+
+/* 下箭头 */
+.sort-arrow.sort-down {
+  border-top: 4px solid #666;
+  border-bottom: none;
+}
+
+/* 激活状态 */
+.sort-arrow.active {
+  opacity: 1;
+}
+
+.sort-arrow.sort-up.active {
+  border-bottom-color: #0088ff;
+}
+
+.sort-arrow.sort-down.active {
+  border-top-color: #0088ff;
+}
+
+/* 悬停效果 */
+.sortable:hover .sort-arrow {
+  opacity: 0.7;
+}
+
+.sortable:hover .sort-arrow.active {
+  opacity: 1;
+}
+
+/* 兼容旧样式 */
+.sort-arrow.sort-desc {
+  border-bottom: 6px solid #0088ff;
+  border-top: none;
+  opacity: 1;
+}
+
+.sort-arrow.sort-asc {
+  border-top: 6px solid #0088ff;
+  border-bottom: none;
+  opacity: 1;
+}
+
+.sort-arrow.sort-none {
+  border-bottom: 6px solid #ccc;
+  opacity: 0.4;
+}
+
+/* 排序激活状态 */
+.sortable.sort-active {
+  background-color: #e3f2fd;
+  color: #1976d2;
+}
+
+.sortable.sort-active .sort-icon {
+  opacity: 1;
+}
+
+/* 标签列表头居中 */
+.col-tags.sortable {
+  text-align: center;
+}
+
+.col-tags .sort-header {
+  justify-content: center;
+  gap: 8px;
 }
 </style>

@@ -37,31 +37,41 @@ const handleClick = () => {
 
 <style scoped>
 .search-button {
-  width: 39px;
-  height: 39px;
+  width: 42px;
+  height: 42px;
   border: none;
-  background: none;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #667eea 100%);
+  background-size: 200% 100%;
   cursor: pointer;
-  color: #0088ff;
+  color: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 4.875px;
-  border-radius: 8px;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  padding: 11px;
+  border-radius: 50%;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-position 0.5s ease;
+  box-shadow: 0 4px 6px rgba(118, 75, 162, 0.3);
+}
+
+.search-button svg {
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .search-button:hover {
-  color: #0066cc;
+  box-shadow: 0 6px 12px rgba(118, 75, 162, 0.4);
+  background-position: 100% 0;
+}
+
+.search-button:hover svg {
+  transform: scale(1.2) rotate(-15deg);
 }
 
 .search-button:active {
-  background-color: rgba(0, 136, 255, 0.2);
-  color: #004499;
+  box-shadow: 0 2px 4px rgba(118, 75, 162, 0.3);
 }
 
 .search-button:focus {
-  outline: 2px solid rgba(0, 136, 255, 0.3);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(118, 75, 162, 0.3);
 }
 </style>

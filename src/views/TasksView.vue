@@ -1,151 +1,216 @@
 <template>
-  <div class="tasks-container">
-    <!-- 页面标题 -->
-    <div class="page-header">
-      <h1 class="page-title">任务列表</h1>
+  <div class="tasks-wrapper">
+    <!-- 动态背景装饰 -->
+    <div class="background-shapes">
+      <div class="shape shape-1"></div>
+      <div class="shape shape-2"></div>
+      <div class="shape shape-3"></div>
     </div>
 
-    <!-- 任务表格 -->
-    <div class="table-container">
-      <div class="table-wrapper">
-        <table class="tasks-table">
-          <thead>
-            <tr>
-              <th class="align-left">任务</th>
-              <th class="align-left">搜索词</th>
-              <th class="align-left">搜索关键词</th>
-              <th class="align-center sortable" @click="toggleSort">
-                日期
-                <span class="sort-icon">
-                  <span class="triangle-up" :class="{ active: sortOrder === 0 }">▲</span>
-                  <span class="triangle-down" :class="{ active: sortOrder === 1 }">▼</span>
-                </span>
-              </th>
-              <th class="align-center">进度</th>
-              <th class="align-center">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="task in tasks" :key="task.id" :class="{ 'highlight': task.id.toString() === highlightTaskId }">
-              <td class="align-left">{{ task.taskName }}</td>
-              <td class="align-left">{{ task.searchTerm }}</td>
-              <td class="align-left">
-                <div class="keywords-cell">
-                  <span 
-                    v-for="(keyword, index) in task.keywords" 
-                    :key="index"
-                    class="keyword-tag"
-                  >
-                    {{ keyword }}
+    <div class="tasks-container">
+      <!-- 页面标题 -->
+      <div class="page-header">
+        <h1 class="page-title">任务列表</h1>
+      </div>
+
+      <!-- 任务表格 -->
+      <div class="table-container">
+        <div class="table-wrapper">
+          <table class="tasks-table">
+            <thead>
+              <tr>
+                <th class="align-left">任务</th>
+                <th class="align-left">搜索词</th>
+                <th class="align-left">搜索关键词</th>
+                <th class="align-center sortable" @click="toggleSort">
+                  日期
+                  <span class="sort-icon">
+                    <span class="triangle-up" :class="{ active: sortOrder === 0 }">▲</span>
+                    <span class="triangle-down" :class="{ active: sortOrder === 1 }">▼</span>
                   </span>
-                </div>
-              </td>
-              <td class="align-center">{{ task.date }}</td>
-              <td class="align-center">
-                <span 
-                  class="progress-badge" 
-                  :class="getProgressClass(task.status)"
-                >
-                  {{ task.progress }}
-                </span>
-              </td>
-              <td class="align-center">
-                <div class="action-buttons">
-                  <button 
-                    class="btn btn-sm btn-outline"
-                    @click="viewTask(task.id)"
-                    :disabled="!canViewTask(task)"
-                    :title="canViewTask(task) ? '查看检索结果' : '只有检索成功的任务才能查看'"
-                  >
-                    查看
-                  </button>
-                  <button 
-                    class="btn btn-sm btn-danger"
-                    @click="deleteTask(task.id)"
-                    :disabled="task.status === 'searching'"
-                  >
-                    删除
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <!-- 空状态 -->
-      <div v-if="tasks.length === 0 && !isLoading" class="empty-state">
-        <div class="empty-icon">📋</div>
-        <h3>暂无任务</h3>
-        <p>还没有任何搜索任务</p>
-        <button class="btn btn-primary" @click="goHome">
-          返回首页
-        </button>
-      </div>
-
-      <!-- 加载状态 -->
-      <div v-if="isInitialLoading && isLoading" class="loading-state">
-        <div class="loading-spinner"></div>
-        <p>正在加载任务列表...</p>
-      </div>
-    </div>
-
-    <!-- 分页控制 -->
-    <div v-if="tasks.length > 0" class="pagination-container">
-      <!-- 分页导航和页数选择器在一行 -->
-      <div class="pagination-row">
-        <!-- 页数选择器 -->
-        <div class="page-size-selector">
-          <label for="pageSize">每页显示：</label>
-          <select 
-            id="pageSize" 
-            v-model="pageSize" 
-            @change="handlePageSizeChange"
-            class="page-size-select"
-          >
-            <option :value="5">5条</option>
-            <option :value="10">10条</option>
-            <option :value="20">20条</option>
-            <option :value="50">50条</option>
-          </select>
+                </th>
+                <th class="align-center">进度</th>
+                <th class="align-center">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="task in tasks" :key="task.id" :class="{ 'highlight': task.id.toString() === highlightTaskId }">
+                <td class="align-left">{{ task.taskName }}</td>
+                <td class="align-left">{{ task.searchTerm }}</td>
+                <td class="align-left">
+                  <div class="keywords-cell">
+                    <span 
+                      v-for="(keyword, index) in task.keywords" 
+                      :key="index"
+                      class="keyword-tag"
+                    >
+                      {{ keyword }}
+                    </span>
+                  </div>
+                </td>
+                <td class="align-center">{{ task.date }}</td>
+                <td class="align-center">
+                  <div class="status-cell">
+                    <span 
+                      class="progress-badge" 
+                      :class="getProgressClass(task.status)"
+                    >
+                      {{ task.progress }}
+                    </span>
+                    <div v-if="task.errorMessage" class="error-message">
+                      {{ task.errorMessage }}
+                    </div>
+                  </div>
+                </td>
+                <td class="align-center">
+                  <div class="action-buttons">
+                    <button 
+                      class="btn btn-sm btn-warning"
+                      @click="pauseTask(task.id)"
+                      :disabled="task.status !== 'searching'"
+                      v-if="task.status === 'searching'"
+                      title="暂停任务"
+                    >
+                      暂停
+                    </button>
+                    <button 
+                      class="btn btn-sm btn-success"
+                      @click="restartTask(task.id)"
+                      v-if="task.status === 'cancelled'"
+                      title="恢复任务"
+                    >
+                      恢复
+                    </button>
+                    <button 
+                      class="btn btn-sm btn-outline"
+                      @click="viewTask(task.id)"
+                      :disabled="!canViewTask(task)"
+                      :title="canViewTask(task) ? '查看检索结果' : '只有检索成功的任务才能查看'"
+                    >
+                      查看
+                    </button>
+                    <button 
+                      class="btn btn-sm btn-danger"
+                      @click="deleteTask(task.id)"
+                      :disabled="task.status === 'searching'"
+                    >
+                      删除
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-        
-        <!-- 分页导航 -->
-        <div class="pagination">
-          <button 
-            class="btn btn-outline"
-            :disabled="currentPage === 1"
-            @click="changePage(currentPage - 1)"
-          >
-            上一页
+
+        <!-- 空状态 -->
+        <div v-if="tasks.length === 0 && !isLoading" class="empty-state">
+          <div class="empty-icon">📋</div>
+          <h3>暂无任务</h3>
+          <p>还没有任何搜索任务</p>
+          <button class="btn btn-primary" @click="goHome">
+            返回首页
           </button>
-          
-          <!-- 页码显示 -->
-          <div class="page-numbers">
-            <button 
-              v-for="page in visiblePages" 
-              :key="page"
-              class="btn page-btn"
-              :class="{ 'active': page === currentPage }"
-              @click="changePage(page)"
+        </div>
+
+        <!-- 加载状态 -->
+        <div v-if="isInitialLoading && isLoading" class="loading-state">
+          <div class="loading-spinner"></div>
+          <p>正在加载任务列表...</p>
+        </div>
+      </div>
+
+      <!-- 分页控制 -->
+      <div v-if="tasks.length > 0" class="pagination-container">
+        <!-- 分页导航和页数选择器在一行 -->
+        <div class="pagination-row">
+          <!-- 页数选择器 -->
+          <div class="page-size-selector">
+            <label for="pageSize">每页显示：</label>
+            <select 
+              id="pageSize" 
+              v-model="pageSize" 
+              @change="handlePageSizeChange"
+              class="page-size-select"
             >
-              {{ page }}
-            </button>
+              <option :value="5">5条</option>
+              <option :value="10">10条</option>
+              <option :value="20">20条</option>
+              <option :value="50">50条</option>
+            </select>
           </div>
           
-          <button 
-            class="btn btn-outline"
-            :disabled="currentPage === totalPages"
-            @click="changePage(currentPage + 1)"
-          >
-            下一页
-          </button>
+          <!-- 分页导航 -->
+          <div class="pagination">
+            <button 
+              class="btn btn-outline"
+              :disabled="currentPage === 1"
+              @click="changePage(currentPage - 1)"
+            >
+              上一页
+            </button>
+            
+            <!-- 页码显示 -->
+            <div class="page-numbers">
+              <button 
+                v-for="page in visiblePages" 
+                :key="page"
+                class="btn page-btn"
+                :class="{ 'active': page === currentPage }"
+                @click="changePage(page)"
+              >
+                {{ page }}
+              </button>
+            </div>
+            
+            <button 
+              class="btn btn-outline"
+              :disabled="currentPage === totalPages"
+              @click="changePage(currentPage + 1)"
+            >
+              下一页
+            </button>
+          </div>
+        </div>
+        
+        <!-- 分页信息 -->
+        <div class="page-info">
+          第 {{ currentPage }} 页，共 {{ totalPages }} 页（总计 {{ totalTasks }} 条）
         </div>
       </div>
-      
-      <!-- 分页信息 -->
-      <div class="page-info">
-        第 {{ currentPage }} 页，共 {{ totalPages }} 页（总计 {{ totalTasks }} 条）
+    </div>
+
+    <!-- 确认弹窗 -->
+    <div v-if="showConfirmModal" class="modal-overlay" @click="closeConfirmModal">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header" :class="confirmConfig.type">
+          <div class="modal-title-wrapper">
+            <span class="modal-icon">
+              {{ confirmConfig.type === 'delete' ? '🗑️' : (confirmConfig.type === 'pause' ? '⏸️' : '▶️') }}
+            </span>
+            <h3 class="modal-title">{{ confirmConfig.title }}</h3>
+          </div>
+          <button class="modal-close" @click="closeConfirmModal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p>{{ confirmConfig.message }}</p>
+        </div>
+        <div class="modal-footer">
+          <div class="checkbox-wrapper">
+            <input type="checkbox" id="dontShowAgain" v-model="dontShowAgain">
+            <label for="dontShowAgain">不再弹出窗口</label>
+          </div>
+          <div class="modal-buttons">
+            <button class="btn btn-outline" @click="closeConfirmModal">取消</button>
+            <button 
+              class="btn" 
+              :class="getConfirmButtonClass(confirmConfig.type)"
+              @click="executeConfirmAction"
+            >
+              确定
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -168,7 +233,19 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 const totalTasks = ref(0)
 const pollingTimer = ref<NodeJS.Timeout | null>(null)
+
 const sortOrder = ref<number>(1) // 0=asc, 1=desc, 默认降序
+
+// 确认弹窗状态
+// 确认弹窗状态
+const showConfirmModal = ref(false)
+const dontShowAgain = ref(false)
+const confirmConfig = ref({
+  title: '',
+  message: '',
+  type: 'delete', // 'delete' | 'pause' | 'restart'
+  taskId: 0
+})
 
 // 高亮显示的任务ID（从查询参数获取）
 const highlightTaskId = computed(() => {
@@ -207,6 +284,11 @@ const getProgressClass = (status: string | number) => {
     case 'failed':
     case 2:
       return 'danger'
+    case 'failed':
+    case 2:
+      return 'danger'
+    case 'cancelled':
+      return 'secondary' // 新增已取消状态样式
     default:
       return 'info'
   }
@@ -237,6 +319,15 @@ const fetchTasks = async (page: number = currentPage.value, showLoading: boolean
       isInitialLoading.value = false
     }
     
+    // 立即检查正在检索的任务状态
+    const searchingTasks = tasks.value.filter(task => task.status === 'searching')
+    if (searchingTasks.length > 0) {
+      // 并发更新所有检索中任务的状态
+      await Promise.all(
+        searchingTasks.map(task => updateTaskStatus(task.id))
+      )
+    }
+    
     // 启动状态轮询
     startPolling()
   } catch (error) {
@@ -256,26 +347,31 @@ const updateTaskStatus = async (taskId: number) => {
       const task = tasks.value.find(t => t.id === taskId)
       if (task) {
         // 根据状态字符串更新任务状态和进度
-        switch (response.data) {
+        switch (response.data.state) {
           case 'PENDING':
             task.status = 'searching'
             task.progress = '等待中'
+            task.errorMessage = null
             break
           case 'RUNNING':
             task.status = 'searching'
             task.progress = '正在检索'
+            task.errorMessage = null
             break
           case 'COMPLETED':
             task.status = 'success'
             task.progress = '检索成功'
+            task.errorMessage = null
             break
           case 'FAILED':
             task.status = 'failed'
             task.progress = '检索失败'
+            task.errorMessage = response.data.errorMessage
             break
           case 'CANCELLED':
-            task.status = 'failed'
+            task.status = 'cancelled'
             task.progress = '已取消'
+            task.errorMessage = null
             break
         }
       }
@@ -292,7 +388,7 @@ const startPolling = () => {
     clearInterval(pollingTimer.value)
   }
   
-  // 每3秒检查一次检索中的任务状态（减少轮询间隔提升响应速度）
+  // 每1秒检查一次检索中的任务状态（提升响应速度）
   pollingTimer.value = setInterval(async () => {
     const searchingTasks = tasks.value.filter(task => task.status === 'searching')
     
@@ -306,7 +402,7 @@ const startPolling = () => {
     await Promise.all(
       searchingTasks.map(task => updateTaskStatus(task.id))
     )
-  }, 3000)
+  }, 1000) // 从3秒改为1秒
 }
 
 // 停止状态轮询
@@ -339,21 +435,166 @@ const viewTask = (taskId: number) => {
 }
 
 // 删除任务
-const deleteTask = async (taskId: number) => {
-  if (confirm('确定要删除这个任务吗？')) {
-    try {
-      const response = await apiService.deleteTask(taskId)
-      if (response.code === 0 && response.success && response.data) {
-        // 从本地列表中移除已删除的任务
-        tasks.value = tasks.value.filter(task => task.id !== taskId)
-        console.log('任务删除成功:', taskId)
-      } else {
-        throw new Error(response.message || '删除失败')
-      }
-    } catch (error) {
-      console.error('删除任务失败:', error)
-      alert('删除任务失败，请稍后重试')
+const deleteTask = (taskId: number) => {
+  // 检查是否选择了不再提示
+  const hideDeleteModal = localStorage.getItem('hideDeleteTaskModal') === 'true'
+  if (hideDeleteModal) {
+    handleDeleteTask(taskId)
+    return
+  }
+
+  confirmConfig.value = {
+    title: '确认删除',
+    message: '确定要删除这个任务吗？此操作无法撤销。',
+    type: 'delete',
+    taskId
+  }
+  dontShowAgain.value = false // 重置复选框状态
+  showConfirmModal.value = true
+}
+
+// 暂停任务
+const pauseTask = (taskId: number) => {
+  // 检查是否选择了不再提示
+  const hidePauseModal = localStorage.getItem('hidePauseTaskModal') === 'true'
+  if (hidePauseModal) {
+    handlePauseTask(taskId)
+    return
+  }
+
+  confirmConfig.value = {
+    title: '确认暂停',
+    message: '确定要暂停这个任务吗？暂停后可以重新开始。',
+    type: 'pause',
+    taskId
+  }
+  dontShowAgain.value = false // 重置复选框状态
+  showConfirmModal.value = true
+}
+
+// 恢复任务
+const restartTask = (taskId: number) => {
+  // 检查是否选择了不再提示
+  const hideRestartModal = localStorage.getItem('hideRestartTaskModal') === 'true'
+  if (hideRestartModal) {
+    handleRestartTask(taskId)
+    return
+  }
+
+  confirmConfig.value = {
+    title: '确认恢复',
+    message: '确定要恢复这个任务吗？任务将重新开始检索。',
+    type: 'restart',
+    taskId
+  }
+  dontShowAgain.value = false // 重置复选框状态
+  showConfirmModal.value = true
+}
+
+// 获取确认按钮样式
+const getConfirmButtonClass = (type: string) => {
+  switch (type) {
+    case 'delete': return 'btn-danger'
+    case 'pause': return 'btn-warning'
+    case 'restart': return 'btn-success'
+    default: return 'btn-primary'
+  }
+}
+
+
+// 关闭弹窗
+const closeConfirmModal = () => {
+  showConfirmModal.value = false
+}
+
+// 执行确认操作
+const executeConfirmAction = async () => {
+  const { type, taskId } = confirmConfig.value
+  
+  // 保存不再提示的偏好设置
+  if (dontShowAgain.value) {
+    if (type === 'delete') {
+      localStorage.setItem('hideDeleteTaskModal', 'true')
+    } else if (type === 'pause') {
+      localStorage.setItem('hidePauseTaskModal', 'true')
+    } else if (type === 'restart') {
+      localStorage.setItem('hideRestartTaskModal', 'true')
     }
+  }
+  
+  closeConfirmModal()
+  
+  if (type === 'delete') {
+    await handleDeleteTask(taskId)
+  } else if (type === 'pause') {
+    await handlePauseTask(taskId)
+  } else if (type === 'restart') {
+    await handleRestartTask(taskId)
+  }
+}
+
+// 处理删除逻辑
+const handleDeleteTask = async (taskId: number) => {
+  try {
+    const response = await apiService.deleteTask(taskId)
+    if (response.code === 0 && response.success && response.data) {
+      // 从本地列表中移除已删除的任务
+      tasks.value = tasks.value.filter(task => task.id !== taskId)
+      console.log('任务删除成功:', taskId)
+    } else {
+      throw new Error(response.message || '删除失败')
+    }
+  } catch (error) {
+    console.error('删除任务失败:', error)
+    alert('删除任务失败，请稍后重试')
+  }
+}
+
+// 处理暂停逻辑
+const handlePauseTask = async (taskId: number) => {
+  try {
+    const response = await apiService.cancelTask(taskId)
+    if (response.code === 0 && response.success && response.data) {
+      // 更新任务状态
+      const task = tasks.value.find(t => t.id === taskId)
+      if (task) {
+        task.status = 'cancelled'
+        task.progress = '已取消'
+        // 立即刷新状态
+        updateTaskStatus(taskId)
+      }
+      console.log('任务暂停成功:', taskId)
+    } else {
+      throw new Error(response.message || '暂停失败')
+    }
+  } catch (error) {
+    console.error('暂停任务失败:', error)
+    alert('暂停任务失败，请稍后重试')
+  }
+}
+
+// 处理恢复逻辑
+const handleRestartTask = async (taskId: number) => {
+  try {
+    const response = await apiService.restartTask(taskId)
+    if (response.code === 0 && response.success && response.data) {
+      // 更新任务状态为正在搜索
+      const task = tasks.value.find(t => t.id === taskId)
+      if (task) {
+        task.status = 'searching'
+        task.progress = '正在检索'
+        // 立即刷新状态
+        updateTaskStatus(taskId)
+        // 重新启动轮询（如果之前停止了）
+        startPolling()
+      }
+      console.log('任务恢复成功:', taskId)
+    } else {
+      throw new Error(response.message || '恢复失败')
+    }
+  } catch (error) {
+    console.error('恢复任务失败:', error)
+    alert('恢复任务失败，请稍后重试')
   }
 }
 
@@ -395,23 +636,105 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.tasks-container {
+.tasks-wrapper {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  position: relative;
+  overflow-x: hidden;
+  overflow-y: auto;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* 动态背景形状 */
+.background-shapes {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 20px 20px;
+  height: 100%;
+  overflow: hidden;
+  z-index: 0;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.shape {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  opacity: 0.5;
+  animation: float 20s ease-in-out infinite;
+  will-change: transform;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+}
+
+.shape-1 {
+  width: 400px;
+  height: 400px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  top: -100px;
+  left: -100px;
+  animation-delay: 0s;
+}
+
+.shape-2 {
+  width: 350px;
+  height: 350px;
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  top: 50%;
+  right: -100px;
+  animation-delay: 7s;
+}
+
+.shape-3 {
+  width: 300px;
+  height: 300px;
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  bottom: -100px;
+  left: 50%;
+  animation-delay: 14s;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  33% {
+    transform: translate3d(50px, -50px, 0) scale(1.1);
+  }
+  66% {
+    transform: translate3d(-50px, 50px, 0) scale(0.9);
+  }
+}
+
+.tasks-container {
+  margin-top: 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  align-items: center;
+  position: relative;
+  z-index: 1;
 }
 
 .page-header {
   text-align: center;
-  margin-bottom: 16px;
+  margin-bottom: 24px;
 }
 
 .page-title {
-  font-size: 32px;
+  font-size: 45px;
   font-weight: 600;
-  color: #000000;
-  margin: 0;
+  line-height: 1.2; 
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-align: center;
+  margin: 0 0 13px 0;
+  letter-spacing: 4px; 
 }
 
 .table-container {
@@ -421,6 +744,8 @@ onUnmounted(() => {
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   position: relative;
+  width: 95%;
+  max-width: 1600px;
 }
 
 .table-wrapper {
@@ -552,6 +877,13 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
+.status-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
 .progress-badge {
   display: inline-block;
   padding: 4px 8px;
@@ -576,9 +908,26 @@ onUnmounted(() => {
   color: #991b1b;
 }
 
+.progress-badge.secondary {
+  background-color: #f3f4f6;
+  color: #4b5563;
+}
+
 .progress-badge.info {
   background-color: #dbeafe;
   color: #1e40af;
+}
+
+.error-message {
+  font-size: 11px;
+  color: #dc2626;
+  background-color: #fef2f2;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border-left: 2px solid #dc2626;
+  max-width: 200px;
+  text-align: left;
+  line-height: 1.4;
 }
 
 .action-buttons {
@@ -639,6 +988,28 @@ onUnmounted(() => {
 .btn-danger:hover:not(:disabled) {
   background-color: #c82333;
   border-color: #bd2130;
+}
+
+.btn-warning {
+  background-color: #f59e0b;
+  color: #ffffff;
+  border-color: #f59e0b;
+}
+
+.btn-warning:hover:not(:disabled) {
+  background-color: #d97706;
+  border-color: #b45309;
+}
+
+.btn-success {
+  background-color: #10b981;
+  color: #ffffff;
+  border-color: #10b981;
+}
+
+.btn-success:hover:not(:disabled) {
+  background-color: #059669;
+  border-color: #047857;
 }
 
 .btn-sm {
@@ -853,4 +1224,146 @@ onUnmounted(() => {
     font-size: 13px;
   }
 }
+/* 弹窗样式 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(8px); /* 增加模糊效果 */
+  transition: all 0.3s ease;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 16px; /* 更大的圆角 */
+  width: 90%;
+  max-width: 420px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); /* 更深的阴影 */
+  animation: modal-pop 0.4s cubic-bezier(0.16, 1, 0.3, 1); /* 更平滑的动画 */
+  overflow: hidden; /* 防止内容溢出圆角 */
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+@keyframes modal-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.modal-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid #f3f4f6;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #ffffff;
+}
+
+/* 根据类型改变标题颜色 */
+.modal-header.delete .modal-title {
+  color: #dc2626;
+}
+
+.modal-header.pause .modal-title {
+  color: #d97706;
+}
+
+.modal-header.restart .modal-title {
+  color: #10b981;
+}
+
+.modal-title-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.modal-icon {
+  font-size: 24px;
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #111827;
+  letter-spacing: -0.025em;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 28px;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+  border-radius: 6px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+}
+
+.modal-close:hover {
+  color: #4b5563;
+  background-color: #f3f4f6;
+}
+
+.modal-body {
+  padding: 24px;
+  color: #4b5563;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.checkbox-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.checkbox-wrapper input[type="checkbox"] {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  accent-color: #3b82f6;
+  border-radius: 4px;
+}
+
+.checkbox-wrapper label {
+  cursor: pointer;
+  user-select: none;
+}
+
+.modal-footer {
+  padding: 16px 24px;
+  border-top: 1px solid #f3f4f6;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #f9fafb;
+}
+
+.modal-buttons {
+  display: flex;
+  gap: 12px;
+}
+
 </style>

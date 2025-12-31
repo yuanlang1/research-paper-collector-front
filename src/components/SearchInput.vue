@@ -1,29 +1,38 @@
 <template>
   <div class="search-input-container">
-    <input
-      v-model="inputValue"
-      type="text"
-      placeholder="搜索论文标题、作者或关键词..."
-      class="search-input"
-      @keyup.enter="handleSearch"
-      @input="handleInput"
-    />
-    <button 
-      v-if="inputValue" 
-      @click="handleClear"
-      class="clear-button"
-      type="button"
-    >
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-        <path 
-          d="M12 4L4 12M4 4L12 12" 
-          stroke="currentColor" 
-          stroke-width="1.6" 
-          stroke-linecap="round" 
-          stroke-linejoin="round"
-        />
-      </svg>
-    </button>
+    <div class="search-input-wrapper">
+      <input
+        v-model="inputValue"
+        type="text"
+        placeholder="搜索论文相关词..."
+        class="search-input"
+        @keyup.enter="handleSearch"
+        @input="handleInput"
+      />
+      <div class="search-input-right">
+        <button 
+          v-if="inputValue" 
+          @click="handleClear"
+          class="clear-button"
+          type="button"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path 
+              d="M12 4L4 12M4 4L12 12" 
+              stroke="currentColor" 
+              stroke-width="1.6" 
+              stroke-linecap="round" 
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+        <slot name="right" />
+      </div>
+    </div>
+    <!-- 额外内容槽位，例如年份标签 -->
+    <div class="search-input-extra">
+      <slot />
+    </div>
   </div>
 </template>
 
@@ -77,16 +86,20 @@ const handleClear = () => {
 
 <style scoped>
 .search-input-container {
-  position: relative;
   width: 100%;
   max-width: 355px;
+}
+
+.search-input-wrapper {
+  position: relative;
+  width: 100%;
 }
 
 .search-input {
   width: 100%;
   height: 44px;
   padding: 14px 16px;
-  padding-right: 48px;
+  padding-right: 140px; /* 预留右侧区域给下拉框和清空按钮 */
   border: 1px solid #d9d9d9;
   border-radius: 9999px;
   font-size: 14px;
@@ -94,6 +107,16 @@ const handleClear = () => {
   background-color: #ffffff;
   outline: none;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.search-input-right {
+  position: absolute;
+  right: 2px;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .search-input::placeholder {
@@ -106,10 +129,6 @@ const handleClear = () => {
 }
 
 .clear-button {
-  position: absolute;
-  right: 16px;
-  top: 50%;
-  transform: translateY(-50%);
   width: 16px;
   height: 16px;
   border: none;
@@ -129,5 +148,11 @@ const handleClear = () => {
 
 .clear-button:active {
   color: #333333;
+}
+
+.search-input-extra {
+  margin-top: 6px;
+  display: flex;
+  justify-content: flex-start;
 }
 </style>

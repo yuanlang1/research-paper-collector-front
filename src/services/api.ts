@@ -1,6 +1,6 @@
 // API 服务配置
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
-const AI_API_BASE_URL = import.meta.env.VITE_AI_API_BASE_URL || '/ai-service'
+
 
 // 搜索历史接口
 export interface SearchHistory {
@@ -29,11 +29,11 @@ export interface RecentSearchResponse {
   }
   message: string
   other: null
-} 
+}
 
 // 论文数据接口
 export interface Paper {
-  id: number
+  id: string
   title: string
   abstract: string
   authors: string[]
@@ -51,6 +51,7 @@ export interface Paper {
   citations: number
   link?: string
   url?: string
+  pdfUrl?: string
   // 前端状态字段
   abstractExpanded?: boolean
   summaryExpanded?: boolean
@@ -59,8 +60,7 @@ export interface Paper {
 
 // 会议/期刊信息接口
 export interface VenueInfo {
-  id: number
-  standardName: string
+  standardName: string // 期刊/会议标准名称（驼峰命名匹配API）
   acronym: string
   type: number // 0为期刊，1为会议
   sciRank: string | null
@@ -73,6 +73,7 @@ export interface VenueInfo {
 
 // 后端返回的原始论文数据格式
 export interface PaperRaw {
+  id: number
   title: string
   publishedDate: string
   authors: string // 作者用逗号分隔的字符串
@@ -86,13 +87,18 @@ export interface PaperRaw {
   pdfUrl: string
 }
 
+// 排序信息接口
+export interface OrderInfo {
+  orderWord: string // 排序字段
+  orderId: number   // 排序方式: 0=asc, 1=desc
+}
+
 // 论文搜索请求参数
 export interface PaperSearchParams {
   taskId: number
   pageIndex: number
   pageSize: number
-  orderWord?: string // 排序字段，默认 published_date
-  orderId?: string // 排序方式: "0"=asc, "1"=desc
+  orderInfo: OrderInfo[] // 多字段排序数组
 }
 
 // 后端搜索结果响应格式
@@ -132,14 +138,20 @@ export interface KeywordExtractionResult {
 export interface SearchRequest {
   searchWord: string
   keywords: string[]
+  tags: {
+    yearTag: number
+    paperTag: string | null // 期刊/会议等标签过滤，未选择时为null
+    sourceTag: string       // 数据来源过滤: ALL, ARXIV, DBLP, GOOGLE_SCHOLAR 等
+  }
 }
 
 // 后端返回的搜索任务原始数据
 export interface SearchTaskRaw {
   id: number
   searchWord: string
-  keywords: string[]
+  keywords: string // 关键词字符串，逗号分隔
   taskState: string
+  errorMessage: string | null // 错误信息，任务失败时显示
   searchTime: string
 }
 
@@ -149,9 +161,10 @@ export interface SearchTask {
   taskName: string
   searchTerm: string
   keywords: string[]
-  date: string  
+  date: string
   progress: string
-  status: 'searching' | 'success' | 'failed'
+  status: 'searching' | 'success' | 'failed' | 'cancelled'
+  errorMessage?: string | null // 错误信息
 }
 
 // 任务列表分页请求参数
@@ -181,7 +194,10 @@ export interface TasksResponse {
 export interface TaskStatusResponse {
   code: number
   success: boolean
-  data: string // 状态字符串: PENDING, RUNNING, COMPLETED, FAILED, CANCELLED
+  data: {
+    state: string // 状态字符串: PENDING, RUNNING, COMPLETED, FAILED, CANCELLED
+    errorMessage: string | null // 错误信息
+  }
   message: string
   other: string | null
 }
@@ -195,13 +211,48 @@ export interface TaskDeleteResponse {
   other: string | null
 }
 
+// 任务取消响应接口
+export interface TaskCancelResponse {
+  code: number
+  success: boolean
+  data: boolean
+  message: string
+  other: string | null
+}
+
+// 任务重启响应接口
+export interface TaskRestartResponse {
+  code: number
+  success: boolean
+  data: boolean
+  message: string
+  other: string | null
+}
+
 // 任务关键词查询响应接口
 export interface TaskKeywordsResponse {
   code: number
   success: boolean
-  data: string // 关键词字符串，逗号分隔
+  data: string[] // 关键词字符串数组
   message: string
   other: string | null
+}
+
+// OSS 凭证数据接口
+export interface OSSCredentials {
+  accessKeyId: string
+  accessKeySecret: string
+  securityToken: string
+  expiration: string
+}
+
+// OSS 凭证响应接口
+export interface OSSCredentialsResponse {
+  code: number
+  success: boolean
+  message: string
+  other: string | null
+  data: OSSCredentials
 }
 
 // 搜索响应接口
@@ -217,7 +268,7 @@ export interface SearchResponse {
 class ApiService {
   private async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     const url = `${API_BASE_URL}${endpoint}`
-    
+
     try {
       const response = await fetch(url, {
         headers: {
@@ -246,13 +297,13 @@ class ApiService {
         pageSize: pageSize.toString()
       })
       const response = await this.request<RecentSearchResponse>(`/search/recent?${params}`)
-      
+
       return response.data.list.map(item => ({
         id: item.id,
         keyword: item.searchWord,
         searchTime: item.searchTime
       }))
-      
+
     } catch (error) {
       // 如果HTTP请求失败或后端不可用，返回模拟数据
       console.warn('Backend not available, using mock data')
@@ -344,29 +395,31 @@ class ApiService {
   // 搜索论文
   async searchPapers(
     taskId: number,
-    page: number = 1, 
+    page: number = 1,
     size: number = 10,
-    orderWord: string = 'published_date',
-    orderId: string = '1'
+    orderInfo: OrderInfo[] = [
+      { orderWord: 'published_date', orderId: 1 },
+      { orderWord: 'citations', orderId: 1 },
+      { orderWord: 'tags', orderId: 1 }
+    ]
   ): Promise<SearchResult> {
     try {
       const requestBody: PaperSearchParams = {
         taskId,
         pageIndex: page,
         pageSize: size,
-        orderWord,
-        orderId
+        orderInfo
       }
-      
+
       const response = await this.request<SearchResultResponse>('/paper/get', {
         method: 'POST',
         body: JSON.stringify(requestBody)
       })
-      
+
       if (response.code === 0 && response.success) {
         // 转换后端响应格式为前端格式
         return {
-          papers: response.data.list.map((paper, index) => this.convertPaperData(paper, index)),
+          papers: response.data.list.map((paper) => this.convertPaperData(paper)),
           totalPages: response.data.pages,
           currentPage: response.data.pageNumber,
           pageSize: response.data.pageSize,
@@ -388,18 +441,18 @@ class ApiService {
         searchWord: searchWord,
         wordNumber: wordNumber.toString()
       })
-      const url = `${AI_API_BASE_URL}/ai/key-words?${params}`
+      const url = `${API_BASE_URL}/ai/keywords?${params}`
       const response = await fetch(url, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
         },
       })
-      
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
-      
+
       return await response.json()
     } catch (error) {
       console.warn('AI service not available, using mock keywords')
@@ -408,13 +461,22 @@ class ApiService {
   }
 
   // 提交搜索任务
-  async submitSearch(searchTerm: string, keywords: string[]): Promise<SearchResponse> {
+  async submitSearch(
+    searchTerm: string,
+    keywords: string[],
+    year: number = 0,
+    paperTag: string | null = null,
+    sourceTag: string = 'ALL'
+  ): Promise<SearchResponse> {
     try {
+      const tags: SearchRequest['tags'] = { yearTag: year, paperTag, sourceTag }
+
       const searchRequest: SearchRequest = {
         searchWord: searchTerm,
-        keywords: keywords
+        keywords: keywords,
+        tags
       }
-      
+
       return await this.request<SearchResponse>('/search/submit', {
         method: 'POST',
         body: JSON.stringify(searchRequest)
@@ -442,7 +504,7 @@ class ApiService {
   }
 
   // 状态转换函数
-  private convertTaskStatus(taskState: string): { status: 'searching' | 'success' | 'failed', progress: string } {
+  private convertTaskStatus(taskState: string): { status: 'searching' | 'success' | 'failed' | 'cancelled', progress: string } {
     switch (taskState) {
       case 'PENDING':
         return { status: 'searching', progress: '等待中' }
@@ -453,7 +515,7 @@ class ApiService {
       case 'FAILED':
         return { status: 'failed', progress: '检索失败' }
       case 'CANCELLED':
-        return { status: 'failed', progress: '已取消' }
+        return { status: 'cancelled', progress: '已取消' }
       default:
         return { status: 'searching', progress: '等待中' }
     }
@@ -462,15 +524,21 @@ class ApiService {
   // 转换原始任务数据为前端格式
   private convertRawTask(rawTask: SearchTaskRaw): SearchTask {
     const { status, progress } = this.convertTaskStatus(rawTask.taskState)
-    
+
+    // 将逗号分隔的关键词字符串转换为数组
+    const keywordsArray = rawTask.keywords
+      ? rawTask.keywords.split(',').map(k => k.trim()).filter(k => k)
+      : []
+
     return {
       id: rawTask.id,
       taskName: `任务${rawTask.id.toString().padStart(3, '0')}`,
       searchTerm: rawTask.searchWord,
-      keywords: rawTask.keywords,
+      keywords: keywordsArray,
       date: this.formatDateTime(rawTask.searchTime),
       progress,
-      status
+      status,
+      errorMessage: rawTask.errorMessage
     }
   }
 
@@ -481,20 +549,20 @@ class ApiService {
         pageIndex: params.pageIndex,
         pageSize: params.pageSize
       }
-      
+
       if (params.orderWord) {
         requestBody.orderWord = params.orderWord
       }
-      
+
       if (params.orderId !== undefined) {
         requestBody.orderId = params.orderId
       }
-      
+
       const response = await this.request<TasksResponse>('/search/tasks', {
         method: 'POST',
         body: JSON.stringify(requestBody)
       })
-      
+
       if (response.code === 0 && response.success) {
         return {
           tasks: response.data.list.map(rawTask => this.convertRawTask(rawTask)),
@@ -533,23 +601,65 @@ class ApiService {
     }
   }
 
+  // 取消任务
+  async cancelTask(id: number): Promise<TaskCancelResponse> {
+    try {
+      return await this.request<TaskCancelResponse>(`/search/cancel?id=${id}`)
+    } catch (error) {
+      console.warn('Backend not available, using mock cancel')
+      return {
+        code: 0,
+        success: true,
+        data: true,
+        message: 'Mock cancel success',
+        other: null
+      }
+    }
+  }
+
+  // 重启任务
+  async restartTask(id: number): Promise<TaskRestartResponse> {
+    try {
+      return await this.request<TaskRestartResponse>(`/search/restart?id=${id}`)
+    } catch (error) {
+      console.warn('Backend not available, using mock restart')
+      return {
+        code: 0,
+        success: true,
+        data: true,
+        message: 'Mock restart success',
+        other: null
+      }
+    }
+  }
+
   // 获取任务关键词
   async getTaskKeywords(id: number): Promise<TaskKeywordsResponse> {
     try {
-      return await this.request<TaskKeywordsResponse>(`/search/key-words?id=${id}`)
+      return await this.request<TaskKeywordsResponse>(`/search/keywords?id=${id}`)
     } catch (error) {
       console.warn('Backend not available, using mock keywords')
       return this.getMockTaskKeywords(id)
     }
   }
 
+  // 获取 OSS 临时凭证
+  async getOSSCredentials(): Promise<OSSCredentialsResponse> {
+    try {
+      return await this.request<OSSCredentialsResponse>('/oss/get')
+    } catch (error) {
+      console.warn('Backend not available, using mock OSS credentials')
+      return this.getMockOSSCredentials()
+    }
+  }
+
   // 提取中科院分区信息（从"计算机科学1区"中提取"1区"）
   private extractSciZone(sciUp: string | undefined): string | undefined {
     if (!sciUp) return undefined
-    // 匹配 "1区"、"2区"、"3区"、"4区"、"1区Top" 等格式
     const match = sciUp.match(/([1-4]区(?:Top)?)/i)
     return match ? match[1] : undefined
   }
+
 
   // 模拟搜索历史数据
   private getMockSearchHistory(): SearchHistory[] {
@@ -565,19 +675,21 @@ class ApiService {
       { id: 100, keyword: 'Action quality assessment', searchTime: '2025-11-12 17:35:16' },
       { id: 99, keyword: 'Action quality assessment', searchTime: '2025-11-12 17:31:13' }
     ]
-    
+
     return mockHistory
   }
 
   // 转换后端原始数据为前端格式
-  private convertPaperData(rawPaper: PaperRaw, index: number): Paper {
+  private convertPaperData(rawPaper: PaperRaw): Paper {
+    // 现在使用后端提供的真实ID，转换为字符串格式以保持一致性
+    const uniqueId = rawPaper.id.toString()
     return {
-      id: index + 1,
+      id: uniqueId,
       title: rawPaper.title,
       abstract: rawPaper.paperAbstract,
       authors: rawPaper.authors ? rawPaper.authors.split(',').map(a => a.trim()) : [],
       year: rawPaper.publishedDate ? parseInt(rawPaper.publishedDate) : 0,
-      journal: rawPaper.venueInfo?.standardName || '',
+      journal: rawPaper.venueInfo?.standardName || '', // 修复字段名匹配API返回格式
       venueType: rawPaper.venueInfo?.type === 0 ? 'journal' : 'conference',
       ccfLevel: rawPaper.venueInfo?.ccfRank || undefined,
       sciLevel: rawPaper.venueInfo?.sciRank || undefined,
@@ -590,6 +702,7 @@ class ApiService {
       citations: rawPaper.citations,
       url: rawPaper.abstractUrl || rawPaper.pdfUrl,
       link: rawPaper.abstractUrl || rawPaper.pdfUrl,
+      pdfUrl: rawPaper.pdfUrl,
       abstractExpanded: false,
       summaryExpanded: false
     }
@@ -597,9 +710,11 @@ class ApiService {
 
   // 模拟搜索结果
   private getMockSearchResult(id: number, page: number = 1, pageSize: number = 10): SearchResult {
+    // 生成基于页面的全局唯一ID
+    const baseId = (page - 1) * pageSize
     const mockPapers: Paper[] = [
       {
-        id: 1,
+        id: (baseId + 1).toString(),
         title: `基于的深度学习方法研究与应用`,
         abstract: `本文综述了任务${id}相关领域的最新研究进展，分析了当前的技术挑战和未来发展趋势。通过对比分析不同算法的性能表现，提出了一种新的优化策略，实验结果表明该方法在准确率和效率方面都有显著提升。`,
         authors: ['张三', '李四', '王五'],
@@ -617,7 +732,7 @@ class ApiService {
         url: 'https://example.com/paper1'
       },
       {
-        id: 2,
+        id: (baseId + 2).toString(),
         title: `技术在智能系统中的应用与优化`,
         abstract: `通过分析多个实际案例，本文探讨了任务${id}技术在不同智能系统中的应用效果和实施策略。研究涵盖了算法设计、系统架构、性能评估等多个方面，为相关领域的研究提供了重要参考。`,
         authors: ['赵六', '钱七', '孙八', '周九'],
@@ -635,7 +750,7 @@ class ApiService {
         url: 'https://example.com/paper2'
       },
       {
-        id: 3,
+        id: (baseId + 3).toString(),
         title: `多模态融合算法设计`,
         abstract: `针对传统单模态方法的局限性，本文提出了一种多模态融合的任务${id}算法。该算法能够有效整合不同模态的信息，提高了系统的鲁棒性和准确性。实验验证了算法的有效性和优越性。`,
         authors: ['吴十', '郑十一'],
@@ -653,7 +768,7 @@ class ApiService {
         url: 'https://example.com/paper3'
       },
       {
-        id: 4,
+        id: (baseId + 4).toString(),
         title: `领域的前沿技术综述`,
         abstract: `本文对任务${id}领域的前沿技术进行了全面综述，包括理论基础、关键技术、应用场景等方面。分析了当前研究的热点和难点，展望了未来的发展方向和潜在突破点。`,
         authors: ['冯十二', '陈十三', '褚十四', '卫十五', '蒋十六'],
@@ -734,70 +849,78 @@ class ApiService {
       {
         id: 1,
         searchWord: '动作质量评估',
-        keywords: ['Action Quality Assessment', 'Self-attention Mechanism', 'Video Action Analysis'],
+        keywords: 'Action Quality Assessment, Self-attention Mechanism, Video Action Analysis',
         searchTime: '2024-11-01',
-        taskState: 'COMPLETED'
+        taskState: 'COMPLETED',
+        errorMessage: null
       },
       {
         id: 2,
         searchWord: '深度学习',
-        keywords: ['Deep Learning', 'Neural Networks', 'Machine Learning'],
+        keywords: 'Deep Learning, Neural Networks, Machine Learning',
         searchTime: '2024-10-30',
-        taskState: 'RUNNING'
+        taskState: 'RUNNING',
+        errorMessage: null
       },
       {
         id: 3,
         searchWord: '计算机视觉',
-        keywords: ['Computer Vision', 'Image Processing', 'Object Detection'],
+        keywords: 'Computer Vision, Image Processing, Object Detection',
         searchTime: '2024-10-28',
-        taskState: 'FAILED'
+        taskState: 'FAILED',
+        errorMessage: '搜索超时，请稍后重试'
       },
       {
         id: 4,
         searchWord: '自然语言处理',
-        keywords: ['NLP', 'Transformer', 'BERT'],
+        keywords: 'NLP, Transformer, BERT',
         searchTime: '2024-10-25',
-        taskState: 'COMPLETED'
+        taskState: 'COMPLETED',
+        errorMessage: null
       },
       {
         id: 5,
         searchWord: '强化学习',
-        keywords: ['Reinforcement Learning', 'Q-Learning', 'Policy Gradient'],
+        keywords: 'Reinforcement Learning, Q-Learning, Policy Gradient',
         searchTime: '2024-10-20',
-        taskState: 'COMPLETED'
+        taskState: 'COMPLETED',
+        errorMessage: null
       },
       {
         id: 6,
         searchWord: '图神经网络',
-        keywords: ['Graph Neural Network', 'GCN', 'Graph Attention'],
+        keywords: 'Graph Neural Network, GCN, Graph Attention',
         searchTime: '2024-10-18',
-        taskState: 'PENDING'
+        taskState: 'PENDING',
+        errorMessage: null
       },
       {
         id: 7,
         searchWord: '生成对抗网络',
-        keywords: ['GAN', 'Generative Model', 'Adversarial Training'],
+        keywords: 'GAN, Generative Model, Adversarial Training',
         searchTime: '2024-10-15',
-        taskState: 'CANCELLED'
+        taskState: 'CANCELLED',
+        errorMessage: null
       },
       {
         id: 8,
         searchWord: '联邦学习',
-        keywords: ['Federated Learning', 'Privacy Preserving', 'Distributed ML'],
+        keywords: 'Federated Learning, Privacy Preserving, Distributed ML',
         searchTime: '2024-10-12',
-        taskState: 'COMPLETED'
+        taskState: 'COMPLETED',
+        errorMessage: null
       }
     ]
-    
+
     // 计算分页
     const total = allMockRawTasks.length
     const startIndex = (params.pageIndex - 1) * params.pageSize
     const endIndex = startIndex + params.pageSize
     const pagedTasks = allMockRawTasks.slice(startIndex, endIndex)
-    
+
     // 转换为前端格式
     const tasks = pagedTasks.map(rawTask => this.convertRawTask(rawTask))
-    
+
     return {
       tasks,
       total,
@@ -811,18 +934,21 @@ class ApiService {
     // 模拟状态变化：检索中的任务可能会变成成功或失败
     const randomState = Math.random()
     let state = 'RUNNING' // 默认正在检索
-    
+    let errorMessage: string | null = null
+
     if (taskId === 2) { // 任务002 - 正在检索的任务
       if (randomState < 0.3) {
         state = 'COMPLETED' // 30% 概率变成检索完成成功
       } else if (randomState < 0.1) {
         state = 'FAILED' // 10% 概率变成检索失败
+        errorMessage = '搜索服务暂时不可用'
       }
       // 否则保持正在检索
     } else if (taskId === 1) {
       state = 'COMPLETED' // 任务001检索完成成功
     } else if (taskId === 3) {
       state = 'FAILED' // 任务003检索失败
+      errorMessage = '搜索超时，请稍后重试'
     } else if (taskId === 6) {
       state = 'PENDING' // 任务006等待中
     } else if (taskId === 7) {
@@ -832,7 +958,10 @@ class ApiService {
     return {
       code: 0,
       success: true,
-      data: state,
+      data: {
+        state,
+        errorMessage
+      },
       message: '',
       other: null
     }
@@ -854,9 +983,26 @@ class ApiService {
     return {
       code: 0,
       success: true,
-      data: 'Machine Learning,Neural Networks,Natural Language Processing',
+      data: ['Machine Learning', 'Neural Networks', 'Natural Language Processing'],
       message: '',
       other: null
+    }
+  }
+
+  // 模拟 OSS 凭证响应
+  private getMockOSSCredentials(): OSSCredentialsResponse {
+    const expiration = new Date(Date.now() + 3600 * 1000).toISOString()
+    return {
+      code: 0,
+      success: true,
+      message: 'Success',
+      other: null,
+      data: {
+        accessKeyId: 'MOCK_ACCESS_KEY_ID',
+        accessKeySecret: 'MOCK_ACCESS_KEY_SECRET',
+        securityToken: 'MOCK_SECURITY_TOKEN',
+        expiration: expiration
+      }
     }
   }
 
@@ -865,7 +1011,7 @@ class ApiService {
     try {
       const history = JSON.parse(localStorage.getItem('searchHistory') || '[]')
       const existingIndex = history.findIndex((item: SearchHistory) => item.keyword === keyword)
-      
+
       if (existingIndex >= 0) {
         history[existingIndex].searchTime = new Date().toISOString()
         // 移动到最前面
@@ -878,7 +1024,7 @@ class ApiService {
           searchTime: new Date().toISOString()
         })
       }
-      
+
       // 只保留最近的10条记录
       localStorage.setItem('searchHistory', JSON.stringify(history.slice(0, 10)))
     } catch (error) {

@@ -18,12 +18,7 @@ export default defineConfig({
         secure: false,
         rewrite: (path) => path.replace(/^\/api/, '')
       },
-      '/ai-service': {
-        target: 'http://localhost:8081',
-        changeOrigin: true,
-        secure: false,
-        rewrite: (path) => path.replace(/^\/ai-service/, '')
-      }
+
     }
   }
 })
