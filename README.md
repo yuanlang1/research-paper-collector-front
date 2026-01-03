@@ -108,8 +108,8 @@ src/
 | 任务列表 | POST | `/task/tasks` | 获取任务列表 | `getSearchTasks()` |
 | 任务状态 | GET | `/task/state?id={number}` | 查询任务状态 | `getTaskStatus()` |
 | 任务删除 | DELETE | `/task/delete?id={number}` | 删除任务 | `deleteTask()` |
-| 任务取消 | GET | `/task/cancel?id={number}` | 取消/暂停任务 | `cancelTask()` |
-| 任务恢复 | GET | `/task/restart?id={number}` | 恢复已取消的任务 | `restartTask()` |
+| 任务取消 | POST | `/task/cancel?id={number}` | 取消/暂停任务 | `cancelTask()` |
+| 任务恢复 | POST | `/task/restart?id={number}` | 恢复已取消的任务 | `restartTask()` |
 | 任务关键词 | GET | `/task/keywords?id={number}` | 获取任务关键词 | `getTaskKeywords()` |
 | 论文搜索 | POST | `/paper/get` | 搜索论文结果 | `searchPapers()` |
 | AI服务 | GET | `/ai/keywords?searchWord={string}&wordNumber={number}` | AI关键词提取 | `extractKeywords()` |

@@ -21,6 +21,7 @@
               <tr>
                 <th class="align-left">任务</th>
                 <th class="align-left">搜索词</th>
+                <th class="align-left">检索标签</th>
                 <th class="align-left">搜索关键词</th>
                 <th class="align-center sortable" @click="toggleSort">
                   日期
@@ -37,6 +38,33 @@
               <tr v-for="task in tasks" :key="task.id" :class="{ 'highlight': task.id.toString() === highlightTaskId }">
                 <td class="align-left">{{ task.taskName }}</td>
                 <td class="align-left">{{ task.searchTerm }}</td>
+                <td class="align-left">
+                  <div class="tags-cell">
+                    <span 
+                      v-if="task.tags.yearTag !== 0" 
+                      class="filter-tag year-tag"
+                    >
+                      {{ formatYearTag(task.tags.yearTag) }}
+                    </span>
+                    <span 
+                      v-if="task.tags.paperTag" 
+                      class="filter-tag paper-tag"
+                    >
+                      {{ task.tags.paperTag }}
+                    </span>
+                    <template v-if="task.tags.sourceTag === 'ALL'">
+                      <span class="filter-tag source-tag">arXiv</span>
+                      <span class="filter-tag source-tag">DBLP</span>
+                      <span class="filter-tag source-tag">Google Scholar</span>
+                    </template>
+                    <span 
+                      v-else
+                      class="filter-tag source-tag"
+                    >
+                      {{ formatSourceTag(task.tags.sourceTag) }}
+                    </span>
+                  </div>
+                </td>
                 <td class="align-left">
                   <div class="keywords-cell">
                     <span 
@@ -624,6 +652,29 @@ const toggleSort = async () => {
   await fetchTasks(1, false)
 }
 
+// 格式化年份标签显示
+const formatYearTag = (yearTag: number): string => {
+  const currentYear = new Date().getFullYear()
+  const yearsAgo = currentYear - yearTag
+  if (yearsAgo === 0) {
+    return '近1年'
+  } else if (yearsAgo > 0) {
+    return `近${yearsAgo + 1}年`
+  }
+  return String(yearTag)
+}
+
+// 格式化来源标签显示
+const formatSourceTag = (sourceTag: string): string => {
+  const sourceMap: Record<string, string> = {
+    'ALL': '全部',
+    'ARXIV': 'arXiv',
+    'DBLP': 'DBLP',
+    'GOOGLE_SCHOLAR': 'Google Scholar'
+  }
+  return sourceMap[sourceTag] || sourceTag
+}
+
 // 组件挂载时获取任务列表
 onMounted(() => {
   fetchTasks()
@@ -875,6 +926,42 @@ onUnmounted(() => {
   border-radius: 12px;
   font-size: 12px;
   white-space: nowrap;
+}
+
+.tags-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.filter-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  border: 1px solid;
+}
+
+.year-tag {
+  background: linear-gradient(135deg, #c7d2fe 0%, #ddd6fe 100%);
+  color: #4c1d95;
+  border-color: transparent;
+}
+
+.paper-tag {
+  background: linear-gradient(135deg, #fecdd3 0%, #fbcfe8 100%);
+  color: #831843;
+  border-color: transparent;
+}
+
+.source-tag {
+  background: linear-gradient(135deg, #bfdbfe 0%, #dbeafe 100%);
+  color: #1e3a8a;
+  border-color: transparent;
 }
 
 .status-cell {

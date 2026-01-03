@@ -76,13 +76,14 @@ export interface PaperRaw {
   id: number
   title: string
   publishedDate: string
-  authors: string // 作者用逗号分隔的字符串
+  authors: string[] // 作者数组
   paperAbstract: string
   aiAbstract: string
   doi: string
+  venueId: number
   venueInfo: VenueInfo
   citations: number
-  keywords: string // 关键词用逗号分隔的字符串
+  keywords: string[] // 关键词数组
   abstractUrl: string
   pdfUrl: string
 }
@@ -149,7 +150,12 @@ export interface SearchRequest {
 export interface SearchTaskRaw {
   id: number
   searchWord: string
-  keywords: string // 关键词字符串，逗号分隔
+  tags: {
+    yearTag: number
+    paperTag: string | null
+    sourceTag: string
+  }
+  keywords: string[] // 关键词数组
   taskState: string
   errorMessage: string | null // 错误信息，任务失败时显示
   searchTime: string
@@ -160,6 +166,11 @@ export interface SearchTask {
   id: number
   taskName: string
   searchTerm: string
+  tags: {
+    yearTag: number
+    paperTag: string | null
+    sourceTag: string
+  }
   keywords: string[]
   date: string
   progress: string
@@ -525,16 +536,12 @@ class ApiService {
   private convertRawTask(rawTask: SearchTaskRaw): SearchTask {
     const { status, progress } = this.convertTaskStatus(rawTask.taskState)
 
-    // 将逗号分隔的关键词字符串转换为数组
-    const keywordsArray = rawTask.keywords
-      ? rawTask.keywords.split(',').map(k => k.trim()).filter(k => k)
-      : []
-
     return {
       id: rawTask.id,
       taskName: `任务${rawTask.id.toString().padStart(3, '0')}`,
       searchTerm: rawTask.searchWord,
-      keywords: keywordsArray,
+      tags: rawTask.tags,
+      keywords: rawTask.keywords || [],
       date: this.formatDateTime(rawTask.searchTime),
       progress,
       status,
@@ -604,7 +611,9 @@ class ApiService {
   // 取消任务
   async cancelTask(id: number): Promise<TaskCancelResponse> {
     try {
-      return await this.request<TaskCancelResponse>(`/task/cancel?id=${id}`)
+      return await this.request<TaskCancelResponse>(`/task/cancel?id=${id}`, {
+        method: 'POST'
+      })
     } catch (error) {
       console.warn('Backend not available, using mock cancel')
       return {
@@ -620,7 +629,9 @@ class ApiService {
   // 重启任务
   async restartTask(id: number): Promise<TaskRestartResponse> {
     try {
-      return await this.request<TaskRestartResponse>(`/task/restart?id=${id}`)
+      return await this.request<TaskRestartResponse>(`/task/restart?id=${id}`, {
+        method: 'POST'
+      })
     } catch (error) {
       console.warn('Backend not available, using mock restart')
       return {
@@ -687,7 +698,7 @@ class ApiService {
       id: uniqueId,
       title: rawPaper.title,
       abstract: rawPaper.paperAbstract,
-      authors: rawPaper.authors ? rawPaper.authors.split(',').map(a => a.trim()) : [],
+      authors: rawPaper.authors || [],
       year: rawPaper.publishedDate ? parseInt(rawPaper.publishedDate) : 0,
       journal: rawPaper.venueInfo?.standardName || '', // 修复字段名匹配API返回格式
       venueType: rawPaper.venueInfo?.type === 0 ? 'journal' : 'conference',
@@ -697,7 +708,7 @@ class ApiService {
       jcrLevel: this.extractSciZone(rawPaper.venueInfo?.sciUp || undefined), // 提取分区用于样式
       sciUpFull: rawPaper.venueInfo?.sciUp || undefined, // 存储完整的中科院分区信息
       impactFactor: (rawPaper.venueInfo?.sciIf && rawPaper.venueInfo.sciIf > 0) ? rawPaper.venueInfo.sciIf : undefined,
-      keywords: rawPaper.keywords ? rawPaper.keywords.split(',').map(k => k.trim()) : [],
+      keywords: rawPaper.keywords || [],
       summary: rawPaper.aiAbstract,
       citations: rawPaper.citations,
       url: rawPaper.abstractUrl || rawPaper.pdfUrl,
@@ -849,7 +860,8 @@ class ApiService {
       {
         id: 1,
         searchWord: '动作质量评估',
-        keywords: 'Action Quality Assessment, Self-attention Mechanism, Video Action Analysis',
+        tags: { yearTag: 2024, paperTag: 'CVPR', sourceTag: 'ALL' },
+        keywords: ['Action Quality Assessment', 'Self-attention Mechanism', 'Video Action Analysis'],
         searchTime: '2024-11-01',
         taskState: 'COMPLETED',
         errorMessage: null
@@ -857,7 +869,8 @@ class ApiService {
       {
         id: 2,
         searchWord: '深度学习',
-        keywords: 'Deep Learning, Neural Networks, Machine Learning',
+        tags: { yearTag: 2023, paperTag: null, sourceTag: 'ARXIV' },
+        keywords: ['Deep Learning', 'Neural Networks', 'Machine Learning'],
         searchTime: '2024-10-30',
         taskState: 'RUNNING',
         errorMessage: null
@@ -865,7 +878,8 @@ class ApiService {
       {
         id: 3,
         searchWord: '计算机视觉',
-        keywords: 'Computer Vision, Image Processing, Object Detection',
+        tags: { yearTag: 0, paperTag: 'ICCV', sourceTag: 'DBLP' },
+        keywords: ['Computer Vision', 'Image Processing', 'Object Detection'],
         searchTime: '2024-10-28',
         taskState: 'FAILED',
         errorMessage: '搜索超时，请稍后重试'
@@ -873,7 +887,8 @@ class ApiService {
       {
         id: 4,
         searchWord: '自然语言处理',
-        keywords: 'NLP, Transformer, BERT',
+        tags: { yearTag: 2022, paperTag: null, sourceTag: 'ALL' },
+        keywords: ['NLP', 'Transformer', 'BERT'],
         searchTime: '2024-10-25',
         taskState: 'COMPLETED',
         errorMessage: null
@@ -881,7 +896,8 @@ class ApiService {
       {
         id: 5,
         searchWord: '强化学习',
-        keywords: 'Reinforcement Learning, Q-Learning, Policy Gradient',
+        tags: { yearTag: 2021, paperTag: 'NeurIPS', sourceTag: 'GOOGLE_SCHOLAR' },
+        keywords: ['Reinforcement Learning', 'Q-Learning', 'Policy Gradient'],
         searchTime: '2024-10-20',
         taskState: 'COMPLETED',
         errorMessage: null
@@ -889,7 +905,8 @@ class ApiService {
       {
         id: 6,
         searchWord: '图神经网络',
-        keywords: 'Graph Neural Network, GCN, Graph Attention',
+        tags: { yearTag: 0, paperTag: null, sourceTag: 'ALL' },
+        keywords: ['Graph Neural Network', 'GCN', 'Graph Attention'],
         searchTime: '2024-10-18',
         taskState: 'PENDING',
         errorMessage: null
@@ -897,7 +914,8 @@ class ApiService {
       {
         id: 7,
         searchWord: '生成对抗网络',
-        keywords: 'GAN, Generative Model, Adversarial Training',
+        tags: { yearTag: 2020, paperTag: 'ICML', sourceTag: 'ARXIV' },
+        keywords: ['GAN', 'Generative Model', 'Adversarial Training'],
         searchTime: '2024-10-15',
         taskState: 'CANCELLED',
         errorMessage: null
@@ -905,7 +923,8 @@ class ApiService {
       {
         id: 8,
         searchWord: '联邦学习',
-        keywords: 'Federated Learning, Privacy Preserving, Distributed ML',
+        tags: { yearTag: 2019, paperTag: null, sourceTag: 'DBLP' },
+        keywords: ['Federated Learning', 'Privacy Preserving', 'Distributed ML'],
         searchTime: '2024-10-12',
         taskState: 'COMPLETED',
         errorMessage: null
