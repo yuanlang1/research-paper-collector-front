@@ -754,7 +754,7 @@ onUnmounted(() => {
   line-height: 1.2;
   position: relative;
   z-index: 1;
-  gap: 28px;
+  gap: 25px;
 }
 
 .main-title {
@@ -766,7 +766,7 @@ onUnmounted(() => {
   -webkit-text-fill-color: transparent;
   background-clip: text;
   margin: 0 0 28px 0; 
-  letter-spacing: 4px; 
+  letter-spacing: 8px; 
 }
 
 
