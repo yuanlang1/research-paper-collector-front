@@ -261,6 +261,9 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 const totalTasks = ref(0)
 const pollingTimer = ref<NodeJS.Timeout | null>(null)
+const pollingInterval = ref(3000) // 动态轮询间隔，默认3秒
+const consecutiveNoChanges = ref(0) // 连续无变化次数
+const isPageVisible = ref(true) // 页面可见性状态
 
 const sortOrder = ref<number>(1) // 0=asc, 1=desc, 默认降序
 
@@ -312,9 +315,6 @@ const getProgressClass = (status: string | number) => {
     case 'failed':
     case 2:
       return 'danger'
-    case 'failed':
-    case 2:
-      return 'danger'
     case 'cancelled':
       return 'secondary' // 新增已取消状态样式
     default:
@@ -350,10 +350,14 @@ const fetchTasks = async (page: number = currentPage.value, showLoading: boolean
     // 立即检查正在检索的任务状态
     const searchingTasks = tasks.value.filter(task => task.status === 'searching')
     if (searchingTasks.length > 0) {
-      // 并发更新所有检索中任务的状态
-      await Promise.all(
-        searchingTasks.map(task => updateTaskStatus(task.id))
-      )
+      // 批量更新任务状态（限制并发数为3）
+      const batchSize = 3
+      for (let i = 0; i < searchingTasks.length; i += batchSize) {
+        const batch = searchingTasks.slice(i, i + batchSize)
+        await Promise.all(
+          batch.map(task => updateTaskStatus(task.id))
+        )
+      }
     }
     
     // 启动状态轮询
@@ -368,12 +372,13 @@ const fetchTasks = async (page: number = currentPage.value, showLoading: boolean
 }
 
 // 更新任务状态
-const updateTaskStatus = async (taskId: number) => {
+const updateTaskStatus = async (taskId: number): Promise<boolean> => {
   try {
     const response = await apiService.getTaskStatus(taskId)
     if (response.code === 0 && response.success) {
       const task = tasks.value.find(t => t.id === taskId)
       if (task) {
+        const oldStatus = task.status
         // 根据状态字符串更新任务状态和进度
         switch (response.data.state) {
           case 'PENDING':
@@ -402,35 +407,103 @@ const updateTaskStatus = async (taskId: number) => {
             task.errorMessage = null
             break
         }
+        // 返回状态是否发生变化
+        return oldStatus !== task.status
       }
     }
   } catch (error) {
     console.error('Failed to update task status:', error)
   }
+  return false
 }
 
-// 启动状态轮询
+// 计算动态轮询间隔
+const calculatePollingInterval = (searchingCount: number): number => {
+  if (searchingCount === 0) return 0 // 无任务时不轮询
+  if (searchingCount === 1) return 2000 // 1个任务：2秒
+  if (searchingCount <= 3) return 3000 // 2-3个任务：3秒
+  if (searchingCount <= 5) return 5000 // 4-5个任务：5秒
+  return 8000 // 6个以上任务：8秒
+}
+
+// 启动状态轮询（优化版）
 const startPolling = () => {
   // 清除之前的定时器
   if (pollingTimer.value) {
     clearInterval(pollingTimer.value)
   }
   
-  // 每1秒检查一次检索中的任务状态（提升响应速度）
-  pollingTimer.value = setInterval(async () => {
-    const searchingTasks = tasks.value.filter(task => task.status === 'searching')
+  const searchingTasks = tasks.value.filter(task => task.status === 'searching')
+  
+  // 如果没有检索中的任务，停止轮询
+  if (searchingTasks.length === 0) {
+    stopPolling()
+    return
+  }
+  
+  // 如果页面不可见，停止轮询
+  if (!isPageVisible.value) {
+    return
+  }
+  
+  // 根据任务数量动态计算轮询间隔
+  const interval = calculatePollingInterval(searchingTasks.length)
+  pollingInterval.value = interval
+  
+  // 执行轮询
+  const pollTasks = async () => {
+    const currentSearchingTasks = tasks.value.filter(task => task.status === 'searching')
     
-    if (searchingTasks.length === 0) {
-      // 如果没有检索中的任务，停止轮询
+    if (currentSearchingTasks.length === 0) {
       stopPolling()
       return
     }
     
-    // 并发更新所有检索中任务的状态
-    await Promise.all(
-      searchingTasks.map(task => updateTaskStatus(task.id))
-    )
-  }, 1000) // 从3秒改为1秒
+    // 如果页面不可见，跳过本次轮询
+    if (!isPageVisible.value) {
+      return
+    }
+    
+    // 批量更新任务状态（限制并发数为3）
+    let hasChanges = false
+    const batchSize = 3
+    for (let i = 0; i < currentSearchingTasks.length; i += batchSize) {
+      const batch = currentSearchingTasks.slice(i, i + batchSize)
+      const results = await Promise.all(
+        batch.map(task => updateTaskStatus(task.id))
+      )
+      if (results.some(changed => changed)) {
+        hasChanges = true
+      }
+    }
+    
+    // 指数退避策略：如果连续多次无变化，增加轮询间隔
+    if (!hasChanges) {
+      consecutiveNoChanges.value++
+      if (consecutiveNoChanges.value >= 3) {
+        // 连续3次无变化，将间隔增加50%（最多20秒）
+        pollingInterval.value = Math.min(pollingInterval.value * 1.5, 20000)
+        consecutiveNoChanges.value = 0 // 重置计数器
+        
+        // 重新启动轮询以应用新间隔
+        startPolling()
+      }
+    } else {
+      // 有变化时重置
+      consecutiveNoChanges.value = 0
+      const newInterval = calculatePollingInterval(currentSearchingTasks.length)
+      if (newInterval !== pollingInterval.value) {
+        pollingInterval.value = newInterval
+        startPolling() // 重新启动以应用新间隔
+      }
+    }
+  }
+  
+  // 立即执行一次
+  pollTasks()
+  
+  // 设置定时器
+  pollingTimer.value = setInterval(pollTasks, pollingInterval.value)
 }
 
 // 停止状态轮询
@@ -438,6 +511,25 @@ const stopPolling = () => {
   if (pollingTimer.value) {
     clearInterval(pollingTimer.value)
     pollingTimer.value = null
+  }
+  consecutiveNoChanges.value = 0
+}
+
+// 页面可见性变化处理
+const handleVisibilityChange = () => {
+  isPageVisible.value = !document.hidden
+  
+  if (isPageVisible.value) {
+    // 页面变为可见时，重新检查是否需要轮询
+    const searchingTasks = tasks.value.filter(task => task.status === 'searching')
+    if (searchingTasks.length > 0) {
+      console.log('页面可见，恢复轮询')
+      startPolling()
+    }
+  } else {
+    // 页面不可见时，停止轮询以节省资源
+    console.log('页面不可见，暂停轮询')
+    stopPolling()
   }
 }
 
@@ -678,11 +770,17 @@ const formatSourceTag = (sourceTag: string): string => {
 // 组件挂载时获取任务列表
 onMounted(() => {
   fetchTasks()
+  
+  // 监听页面可见性变化
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 // 组件卸载时清理定时器
 onUnmounted(() => {
   stopPolling()
+  
+  // 移除页面可见性监听
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>
 
