@@ -92,9 +92,9 @@ class OSSService {
   }
 
   /**
-   * 获取有效的 OSS 客户端
+   * 获取有效的 OSS 客户端（公开方法）
    */
-  private async getOSSClient(): Promise<OSS> {
+  async getOSSClient(): Promise<OSS> {
     if (this.isCredentialsExpiringSoon()) {
       await this.refreshCredentials()
     }

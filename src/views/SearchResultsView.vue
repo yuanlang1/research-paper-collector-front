@@ -84,7 +84,7 @@
                 </div>
               </th>
               <th class="col-link">官网链接</th>
-              <th class="col-pdf">PDF链接</th>
+              <th class="col-pdf">链接</th>
             </tr>
           </thead>
           <tbody>
@@ -227,14 +227,22 @@
               </td>
               <td class="col-pdf">
                 <div class="pdf-link">
-                  <button 
-                    v-if="paper.pdfUrl" 
-                    @click="previewPDF(paper.pdfUrl)"
-                    class="pdf-btn"
-                    title="预览PDF"
-                  >
-                    📄 下载PDF
-                  </button>
+                  <div v-if="paper.pdfUrl" class="action-buttons">
+                    <button 
+                      @click="previewPDFInBrowser(paper.pdfUrl)"
+                      class="action-btn pdf-btn"
+                      title="预览 PDF"
+                    >
+                      📄 PDF
+                    </button>
+                    <button 
+                      @click="openMarkdownViewer(paper)"
+                      class="action-btn md-btn"
+                      title="查看 Markdown"
+                    >
+                      📝 MD
+                    </button>
+                  </div>
                   <span v-else class="no-data">-</span>
                 </div>
               </td>
@@ -681,8 +689,21 @@ const toggleAuthors = (paperId: string) => {
   }
 }
 
-// 预览 PDF（在新窗口打开）
-const previewPDF = async (pdfUrl: string) => {
+// 打开文档查看器
+const openDocumentViewer = (paper: Paper) => {
+  const mdFileName = paper.pdfUrl ? paper.pdfUrl.replace(/\.pdf$/i, '.md') : ''
+  router.push({
+    name: 'document',
+    query: {
+      title: paper.title,
+      pdfUrl: paper.pdfUrl || '',
+      mdFileName: mdFileName
+    }
+  })
+}
+
+// 在浏览器中预览 PDF
+const previewPDFInBrowser = async (pdfUrl: string) => {
   try {
     isLoading.value = true
     await ossService.previewPDF(pdfUrl)
@@ -699,6 +720,19 @@ const previewPDF = async (pdfUrl: string) => {
   } finally {
     isLoading.value = false
   }
+}
+
+// 打开 Markdown 查看器
+const openMarkdownViewer = (paper: Paper) => {
+  const mdFileName = paper.pdfUrl ? paper.pdfUrl.replace(/\.pdf$/i, '.md') : ''
+  router.push({
+    name: 'document',
+    query: {
+      title: paper.title,
+      mdFileName: mdFileName,
+      viewMode: 'md'
+    }
+  })
 }
 
 // 获取搜索结果
@@ -1788,19 +1822,54 @@ onMounted(async () => {
 }
 
 /* PDF链接 */
-.pdf-btn {
-  color: #d32f2f;
+.pdf-link {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.action-btn {
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid;
   text-decoration: none;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  line-height: 1.2;
+}
+
+.pdf-btn {
+  color: #1976d2;
+  background: #e3f2fd;
+  border-color: #1976d2;
 }
 
 .pdf-btn:hover {
-  text-decoration: underline;
-  color: #b71c1c;
+  background-color: #bbdefb;
+  color: #0d47a1;
+  border-color: #0d47a1;
+}
+
+.md-btn {
+  color: #c2185b;
+  background: #fce4ec;
+  border-color: #c2185b;
+}
+
+.md-btn:hover {
+  background-color: #f8bbd0;
+  color: #880e4f;
+  border-color: #880e4f;
 }
 
 /* 无数据显示 */

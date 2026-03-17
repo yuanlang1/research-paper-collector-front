@@ -302,15 +302,15 @@ class ApiService {
               'Content-Type': 'application/json',
               ...options?.headers,
             },
-            timeout: 30000, // 30秒超时
+            timeout: 60000, // 增加到60秒超时
             ...options,
-          }, 2, 1000) // 重试2次，间隔1秒
+          }, 2, 2000) // 重试2次，间隔2秒
         : await fetchWithTimeout(url, {
             headers: {
               'Content-Type': 'application/json',
               ...options?.headers,
             },
-            timeout: 30000, // 30秒超时
+            timeout: 60000, // 增加到60秒超时
             ...options,
           })
 

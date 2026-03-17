@@ -286,7 +286,7 @@ const highlightTaskId = computed(() => {
 // 总页数
 const totalPages = computed(() => {
   return Math.ceil(totalTasks.value / pageSize.value)
-})
+})  
 
 // 可见的页码（最多显示5个页码）- 优化计算性能
 const visiblePages = computed(() => {

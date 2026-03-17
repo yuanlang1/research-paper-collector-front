@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
 import SearchResultsView from '../views/SearchResultsView.vue'
 import TasksView from '../views/TasksView.vue'
+import DocumentView from '../views/DocumentView.vue'
 import ErrorView from '../views/ErrorView.vue'
 import { setupRouterGuards } from './guards'
 
@@ -19,6 +20,12 @@ const router = createRouter({
       name: 'search-results',
       component: SearchResultsView,
       meta: { title: '搜索结果' }
+    },
+    {
+      path: '/document',
+      name: 'document',
+      component: DocumentView,
+      meta: { title: '文档查看' }
     },
     {
       path: '/tasks',
