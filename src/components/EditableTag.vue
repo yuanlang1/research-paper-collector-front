@@ -6,14 +6,21 @@
       @blur="handleSave"
       @keyup.enter="handleSave"
       @keyup.escape="handleCancel"
+      @click.stop
       class="tag-input"
       ref="inputRef"
     />
-    <span v-else class="tag-text" @dblclick="startEdit">
+    <span v-else class="tag-text" @click.stop @dblclick.stop="startEdit">
       {{ keyword }}
     </span>
-    <button @click="handleRemove" class="remove-button" type="button">
-      ×
+    <button
+      @click.stop="handleRemove"
+      class="remove-button"
+      type="button"
+      aria-label="删除标签"
+      title="删除标签"
+    >
+      <span class="close-icon"></span>
     </button>
   </div>
 </template>
@@ -70,13 +77,14 @@ const handleRemove = () => {
 
 <style scoped>
 .editable-tag {
+  position: relative;
   display: inline-flex;
   align-items: center;
   background-color: #f5f5f5;
   border-radius: 8px;
-  padding: 8px 12px;
-  gap: 8px;
-  font-size: 14px;
+  padding: 5px 22px 5px 9px;
+  gap: 5px;
+  font-size: 13px;
   color: #1e1e1e;
   border: 1px solid transparent;
   transition: all 0.2s ease;
@@ -90,43 +98,62 @@ const handleRemove = () => {
 .tag-text {
   cursor: pointer;
   user-select: none;
-  min-width: 20px;
+  min-width: 12px;
+  line-height: 1.1;
 }
 
 .tag-input {
   border: none;
   background: transparent;
   outline: none;
-  font-size: 14px;
+  font-size: 13px;
   color: #1e1e1e;
-  min-width: 60px;
-  max-width: 200px;
+  min-width: 44px;
+  max-width: 180px;
+  width: 100%;
 }
 
 .remove-button {
-  display: flex;
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
   border: none;
-  background: none;
+  background: transparent;
   cursor: pointer;
-  color: #666666;
-  border-radius: 2px;
-  transition: all 0.2s ease;
-  flex-shrink: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  color: inherit;
+}
+
+.close-icon {
   font-size: 14px;
-  font-weight: 500;
-  line-height: 1;
+  width: 14px;
+  height: 14px;
+  line-height: 12px;
+  opacity: 0.5;
+  margin-left: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s ease;
 }
 
-.remove-button:hover {
+.close-icon::before {
+  content: "\2716";
+}
+
+.remove-button:hover .close-icon {
+  opacity: 1;
   background-color: rgba(0, 0, 0, 0.1);
-  color: #333333;
-}
-
-.remove-button:active {
-  background-color: rgba(0, 0, 0, 0.2);
+  color: #ff4d4f;
 }
 </style>

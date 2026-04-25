@@ -1,6 +1,7 @@
 // API 服务配置
 import type { Router } from 'vue-router'
-import { fetchWithTimeout, fetchWithRetry } from '@/utils/fetchWithTimeout'
+import { fetchWithTimeout, fetchWithRetry, isTimeoutError, type FetchWithTimeoutOptions } from '@/utils/fetchWithTimeout'
+import { normalizePaperTag, type SourceTag, type SubmitPaperTag } from '@/constants/searchTagMappings'
 import { errorHandler } from '@/utils/errorHandler'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
@@ -16,7 +17,7 @@ export interface SearchHistory {
 // 最近搜索单条记录
 export interface RecentSearchItem {
   id: number
-  searchWord: string
+  searchPrompt: string
   searchTime: string
 }
 
@@ -38,6 +39,9 @@ export interface RecentSearchResponse {
 // 论文数据接口
 export interface Paper {
   id: string
+  star: number
+  recommendation: string
+  reasons: string[]
   title: string
   abstract: string
   authors: string[]
@@ -56,6 +60,9 @@ export interface Paper {
   link?: string
   url?: string
   pdfUrl?: string
+  ossName?: string
+  pdfFileName?: string
+  mdFileName?: string
   // 前端状态字段
   abstractExpanded?: boolean
   summaryExpanded?: boolean
@@ -64,12 +71,13 @@ export interface Paper {
 
 // 会议/期刊信息接口
 export interface VenueInfo {
+  id?: number
   standardName: string // 期刊/会议标准名称（驼峰命名匹配API）
   acronym: string
   type: number // 0为期刊，1为会议
   sciRank: string | null
   ccfRank: string | null
-  sciIf: number | null
+  sciIf: number | string | null
   sciUp: string | null // 中科院大区
   sciUpSmall: string | null // 中科院小区
   coreRank: string | null
@@ -78,18 +86,22 @@ export interface VenueInfo {
 // 后端返回的原始论文数据格式
 export interface PaperRaw {
   id: number
+  star: number
+  recommendation: string
+  reasons: string | string[] | null
   title: string
-  publishedDate: string
+  publishedDate: string | null
   authors: string[] // 作者数组
   paperAbstract: string
   aiAbstract: string
   doi: string
-  venueId: number
-  venueInfo: VenueInfo
+  venueId?: number
+  venueInfo: VenueInfo | null
   citations: number
   keywords: string[] // 关键词数组
   abstractUrl: string
   pdfUrl: string
+  ossName: string
 }
 
 // 排序信息接口
@@ -130,37 +142,58 @@ export interface SearchResult {
   totalResults: number // 总结果数（计算得出）
 }
 
-// AI关键词提取结果接口
-export interface KeywordExtractionResult {
+// 查询理解结构化结果
+export interface QueryUnderstanding {
+  topic: string
+  subfields: string[]
+  intent: string
+  yearFrom: number | null
+  yearTo: number | null
+  keywords: string[]
+  synonyms: string[]
+  includeTerms: string[]
+  excludeTerms: string[]
+  requiresCode: boolean
+  reasoning: string
+}
+
+// 查询理解接口响应
+export interface QueryUnderstandingResponse {
   code: number
   success: boolean
-  data: string[]  // 直接返回关键词字符串数组
+  data: {
+    matched: boolean
+    classification: string
+    reason: string
+    structuredQuery: QueryUnderstanding | null
+    consistencyValid: boolean
+  }
   message: string
   other: null
 }
 
-// 搜索请求接口
-export interface SearchRequest {
-  searchWord: string
-  keywords: string[]
-  tags: {
+// 新建搜索任务请求接口
+export interface NewTaskRequest {
+  prompt: string
+  searchTag: {
     yearTag: number
-    paperTag: string | null // 期刊/会议等标签过滤，未选择时为null
-    sourceTag: string       // 数据来源过滤: ALL, ARXIV, DBLP, GOOGLE_SCHOLAR 等
+    paperTag: SubmitPaperTag[]
+    sourceTag: SourceTag[]
   }
+  promptUnderstanding: QueryUnderstanding
 }
 
 // 后端返回的搜索任务原始数据
 export interface SearchTaskRaw {
   id: number
-  searchWord: string
+  searchPrompt: string
+  promptUnderstanding: QueryUnderstanding | null
   tags: {
     yearTag: number
-    paperTag: string | null
-    sourceTag: string
+    paperTag: string[]
+    sourceTag: string[]
   }
-  keywords: string[] // 关键词数组
-  taskState: string
+  state: string
   errorMessage: string | null // 错误信息，任务失败时显示
   searchTime: string
 }
@@ -168,15 +201,14 @@ export interface SearchTaskRaw {
 // 前端使用的搜索任务接口
 export interface SearchTask {
   id: number
-  taskName: string
-  searchTerm: string
+  searchPrompt: string
+  promptUnderstanding: QueryUnderstanding | null
   tags: {
     yearTag: number
-    paperTag: string | null
-    sourceTag: string
+    paperTag: string[]
+    sourceTag: string[]
   }
-  keywords: string[]
-  date: string
+  searchTime: string
   progress: string
   status: 'searching' | 'success' | 'failed' | 'cancelled'
   errorMessage?: string | null // 错误信息
@@ -291,7 +323,7 @@ class ApiService {
     this.router = router
   }
 
-  private async request<T>(endpoint: string, options?: RequestInit, useRetry: boolean = false): Promise<T> {
+  private async request<T>(endpoint: string, options?: FetchWithTimeoutOptions, useRetry: boolean = false): Promise<T> {
     const url = `${API_BASE_URL}${endpoint}`
 
     try {
@@ -302,15 +334,15 @@ class ApiService {
               'Content-Type': 'application/json',
               ...options?.headers,
             },
-            timeout: 30000, // 30秒超时
+            timeout: 60000, // 增加到60秒超时
             ...options,
-          }, 2, 1000) // 重试2次，间隔1秒
+          }, 2, 2000) // 重试2次，间隔2秒
         : await fetchWithTimeout(url, {
             headers: {
               'Content-Type': 'application/json',
               ...options?.headers,
             },
-            timeout: 30000, // 30秒超时
+            timeout: 60000, // 增加到60秒超时
             ...options,
           })
 
@@ -329,11 +361,18 @@ class ApiService {
 
       return await response.json()
     } catch (error: any) {
-      console.error('API request failed:', error)
+      const timedOut = isTimeoutError(error)
+      const shouldSkipGlobalNetworkError = endpoint.startsWith('/ai/query-understanding')
 
-      // 处理网络连接失败或超时错误
-      if (error.message.includes('Failed to fetch') || error.message.includes('请求超时')) {
-        errorHandler.handleNetworkError(endpoint)
+      if (!timedOut) {
+        console.error('API request failed:', error)
+      }
+
+      if (!shouldSkipGlobalNetworkError) {
+        const failedToFetch = error instanceof Error && error.message.includes('Failed to fetch')
+        if (failedToFetch || timedOut) {
+          errorHandler.handleNetworkError(endpoint)
+        }
       }
 
       throw error
@@ -349,7 +388,7 @@ class ApiService {
     const response = await this.request<RecentSearchResponse>(`/task/recent?${params}`, {}, true) // 使用重试
     return response.data.list.map(item => ({
       id: item.id,
-      keyword: item.searchWord,
+      keyword: item.searchPrompt,
       searchTime: item.searchTime
     }))
   }
@@ -374,9 +413,9 @@ class ApiService {
     page: number = 1,
     size: number = 10,
     orderInfo: OrderInfo[] = [
-      { orderWord: 'published_date', orderId: 1 },
-      { orderWord: 'citations', orderId: 1 },
-      { orderWord: 'tags', orderId: 1 }
+      { orderWord: 'star', orderId: 1 },
+      { orderWord: 'publishedDate', orderId: 1 },
+      { orderWord: 'citations', orderId: 1 }
     ]
   ): Promise<SearchResult> {
     const requestBody: PaperSearchParams = {
@@ -402,33 +441,21 @@ class ApiService {
     }
   }
 
-  // AI关键词提取
-  async extractKeywords(searchWord: string, wordNumber: number = 3): Promise<KeywordExtractionResult> {
+  // 查询理解
+  async queryUnderstanding(prompt: string): Promise<QueryUnderstandingResponse> {
     const params = new URLSearchParams({
-      searchWord: searchWord,
-      wordNumber: wordNumber.toString()
+      prompt
     })
-    // 使用统一的request方法，不使用重试（AI服务响应较快）
-    return await this.request<KeywordExtractionResult>(`/ai/keywords?${params}`)
+    return await this.request<QueryUnderstandingResponse>(`/ai/query-understanding?${params}`, {
+      timeout: 20000
+    })
   }
 
   // 提交搜索任务
-  async submitSearch(
-    searchTerm: string,
-    keywords: string[],
-    year: number = 0,
-    paperTag: string | null = null,
-    sourceTag: string = 'ALL'
-  ): Promise<SearchResponse> {
-    const tags: SearchRequest['tags'] = { yearTag: year, paperTag, sourceTag }
-    const searchRequest: SearchRequest = {
-      searchWord: searchTerm,
-      keywords: keywords,
-      tags
-    }
-    return await this.request<SearchResponse>('/task/submit', {
+  async submitSearch(payload: NewTaskRequest): Promise<SearchResponse> {
+    return await this.request<SearchResponse>('/task/add-task', {
       method: 'POST',
-      body: JSON.stringify(searchRequest)
+      body: JSON.stringify(payload)
     })
   }
 
@@ -468,15 +495,30 @@ class ApiService {
 
   // 转换原始任务数据为前端格式
   private convertRawTask(rawTask: SearchTaskRaw): SearchTask {
-    const { status, progress } = this.convertTaskStatus(rawTask.taskState)
+    const { status, progress } = this.convertTaskStatus(rawTask.state)
+    const normalizedPaperTags = (rawTask.tags.paperTag || [])
+      .map(paperTag => normalizePaperTag(paperTag))
+      .filter((paperTag): paperTag is string => Boolean(paperTag))
 
     return {
       id: rawTask.id,
-      taskName: `任务${rawTask.id.toString().padStart(3, '0')}`,
-      searchTerm: rawTask.searchWord,
-      tags: rawTask.tags,
-      keywords: rawTask.keywords || [],
-      date: this.formatDateTime(rawTask.searchTime),
+      searchPrompt: rawTask.searchPrompt,
+      promptUnderstanding: rawTask.promptUnderstanding
+        ? {
+            ...rawTask.promptUnderstanding,
+            subfields: [...rawTask.promptUnderstanding.subfields],
+            keywords: [...rawTask.promptUnderstanding.keywords],
+            synonyms: [...rawTask.promptUnderstanding.synonyms],
+            includeTerms: [...rawTask.promptUnderstanding.includeTerms],
+            excludeTerms: [...rawTask.promptUnderstanding.excludeTerms]
+          }
+        : null,
+      tags: {
+        yearTag: rawTask.tags.yearTag,
+        paperTag: normalizedPaperTags,
+        sourceTag: rawTask.tags.sourceTag || []
+      },
+      searchTime: this.formatDateTime(rawTask.searchTime),
       progress,
       status,
       errorMessage: rawTask.errorMessage
@@ -551,16 +593,33 @@ class ApiService {
     return match ? match[1] : undefined
   }
 
+  private parsePaperReasons(reasons: PaperRaw['reasons']): string[] {
+    if (!reasons) return []
+    if (Array.isArray(reasons)) return reasons.map(String)
+
+    try {
+      const parsed = JSON.parse(reasons)
+      return Array.isArray(parsed) ? parsed.map(String) : [reasons]
+    } catch {
+      return [reasons]
+    }
+  }
+
 
   // 转换后端原始数据为前端格式
   private convertPaperData(rawPaper: PaperRaw): Paper {
     const uniqueId = rawPaper.id.toString()
+    const impactFactor = Number(rawPaper.venueInfo?.sciIf)
+    const ossName = rawPaper.ossName || ''
     return {
       id: uniqueId,
+      star: rawPaper.star ?? 0,
+      recommendation: rawPaper.recommendation || '',
+      reasons: this.parsePaperReasons(rawPaper.reasons),
       title: rawPaper.title,
       abstract: rawPaper.paperAbstract,
       authors: rawPaper.authors || [],
-      year: rawPaper.publishedDate ? parseInt(rawPaper.publishedDate) : 0,
+      year: rawPaper.publishedDate ? parseInt(rawPaper.publishedDate.slice(0, 4)) : 0,
       journal: rawPaper.venueInfo?.standardName || '',
       venueType: rawPaper.venueInfo?.type === 0 ? 'journal' : 'conference',
       ccfLevel: rawPaper.venueInfo?.ccfRank || undefined,
@@ -568,13 +627,16 @@ class ApiService {
       coreLevel: rawPaper.venueInfo?.coreRank || undefined,
       jcrLevel: this.extractSciZone(rawPaper.venueInfo?.sciUp || undefined),
       sciUpFull: rawPaper.venueInfo?.sciUp || undefined,
-      impactFactor: (rawPaper.venueInfo?.sciIf && rawPaper.venueInfo.sciIf > 0) ? rawPaper.venueInfo.sciIf : undefined,
+      impactFactor: Number.isFinite(impactFactor) && impactFactor > 0 ? impactFactor : undefined,
       keywords: rawPaper.keywords || [],
       summary: rawPaper.aiAbstract,
       citations: rawPaper.citations,
       url: rawPaper.abstractUrl || rawPaper.pdfUrl,
       link: rawPaper.abstractUrl || rawPaper.pdfUrl,
       pdfUrl: rawPaper.pdfUrl,
+      ossName,
+      pdfFileName: ossName ? `pdf/${ossName}.pdf` : undefined,
+      mdFileName: ossName ? `md/${ossName}.md` : undefined,
       abstractExpanded: false,
       summaryExpanded: false
     }

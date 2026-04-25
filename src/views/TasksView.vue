@@ -19,10 +19,9 @@
           <table class="tasks-table">
             <thead>
               <tr>
-                <th class="align-left">任务</th>
-                <th class="align-left">搜索词</th>
+                <th class="align-left">搜索需求</th>
                 <th class="align-left">检索标签</th>
-                <th class="align-left">搜索关键词</th>
+                <th class="align-left">查询理解</th>
                 <th class="align-center sortable" @click="toggleSort">
                   日期
                   <span class="sort-icon">
@@ -36,47 +35,74 @@
             </thead>
             <tbody>
               <tr v-for="task in tasks" :key="task.id" :class="{ 'highlight': task.id.toString() === highlightTaskId }">
-                <td class="align-left">{{ task.taskName }}</td>
-                <td class="align-left">{{ task.searchTerm }}</td>
+                <td class="align-left search-demand-cell">
+                  <div class="task-row-header">任务{{ task.id }}</div>
+                  <div class="search-demand-text">{{ task.searchPrompt }}</div>
+                </td>
                 <td class="align-left">
                   <div class="tags-cell">
-                    <span 
-                      v-if="task.tags.yearTag !== 0" 
-                      class="filter-tag year-tag"
+                    <span
+                      v-for="tag in getSearchTagVisibleTags(task)"
+                      :key="`${task.id}-${tag.kind}-${tag.label}`"
+                      class="filter-tag"
+                      :class="`${tag.kind}-tag`"
                     >
-                      {{ formatYearTag(task.tags.yearTag) }}
+                      {{ tag.label }}
                     </span>
-                    <span 
-                      v-if="task.tags.paperTag" 
-                      class="filter-tag paper-tag"
+                    <button
+                      v-if="getSearchTagHiddenCount(task) > 0 || isSearchTagExpanded(task.id)"
+                      class="tag-more"
+                      type="button"
+                      @click="toggleSearchTagExpanded(task.id)"
                     >
-                      {{ task.tags.paperTag }}
-                    </span>
-                    <template v-if="task.tags.sourceTag === 'ALL'">
-                      <span class="filter-tag source-tag">arXiv</span>
-                      <span class="filter-tag source-tag">DBLP</span>
-                      <span class="filter-tag source-tag">Google Scholar</span>
-                    </template>
-                    <span 
-                      v-else
-                      class="filter-tag source-tag"
-                    >
-                      {{ formatSourceTag(task.tags.sourceTag) }}
-                    </span>
+                      {{ isSearchTagExpanded(task.id) ? '收起' : `+${getSearchTagHiddenCount(task)}` }}
+                    </button>
                   </div>
                 </td>
-                <td class="align-left">
-                  <div class="keywords-cell">
-                    <span 
-                      v-for="(keyword, index) in task.keywords" 
-                      :key="index"
-                      class="keyword-tag"
+                <td class="align-left query-understanding-cell">
+                  <div v-if="task.promptUnderstanding" class="understanding-cell">
+                    <div class="understanding-title">
+                      {{ task.promptUnderstanding.topic || '未识别主题' }}
+                    </div>
+                    <div class="understanding-meta-pills">
+                      <span class="understanding-pill understanding-pill-intent">
+                        {{ task.promptUnderstanding.intent || 'mixed' }}
+                      </span>
+                      <span
+                        v-if="formatPromptYearRange(task.promptUnderstanding)"
+                        class="understanding-pill understanding-pill-time"
+                      >
+                        {{ formatPromptYearRange(task.promptUnderstanding) }}
+                      </span>
+                      <span v-if="task.promptUnderstanding.requiresCode" class="understanding-pill understanding-pill-code">
+                        需要代码
+                      </span>
+                    </div>
+                    <div
+                      v-if="getPromptUnderstandingPreviewTags(task.promptUnderstanding).length"
+                      class="understanding-tag-list"
                     >
-                      {{ keyword }}
-                    </span>
+                      <span
+                        v-for="item in getPromptUnderstandingVisibleTags(task)"
+                        :key="`${task.id}-${item.kind}-${item.label}`"
+                        class="understanding-tag"
+                        :class="`understanding-tag-${item.kind}`"
+                      >
+                        {{ item.label }}
+                      </span>
+                      <button
+                        v-if="getPromptUnderstandingHiddenCount(task.promptUnderstanding) > 0 || isPromptUnderstandingExpanded(task.id)"
+                        class="understanding-more"
+                        type="button"
+                        @click="togglePromptUnderstandingExpanded(task.id)"
+                      >
+                        {{ isPromptUnderstandingExpanded(task.id) ? '收起' : `+${getPromptUnderstandingHiddenCount(task.promptUnderstanding)}` }}
+                      </button>
+                    </div>
                   </div>
+                  <div v-else class="understanding-empty">暂无查询理解</div>
                 </td>
-                <td class="align-center">{{ task.date }}</td>
+                <td class="align-center">{{ task.searchTime }}</td>
                 <td class="align-center">
                   <div class="status-cell">
                     <span 
@@ -85,7 +111,7 @@
                     >
                       {{ task.progress }}
                     </span>
-                    <div v-if="task.errorMessage" class="error-message">
+                    <div v-if="task.status === 'failed' && task.errorMessage" class="status-reason">
                       {{ task.errorMessage }}
                     </div>
                   </div>
@@ -248,6 +274,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { apiService, type SearchTask, type TasksRequestParams } from '@/services/api'
+import { DEFAULT_SOURCE_TAGS } from '@/constants/searchTagMappings'
 
 // 路由
 const router = useRouter()
@@ -260,6 +287,8 @@ const isInitialLoading = ref(true)
 const currentPage = ref(1)
 const pageSize = ref(10)
 const totalTasks = ref(0)
+const expandedSearchTagTaskIds = ref<number[]>([])
+const expandedUnderstandingTaskIds = ref<number[]>([])
 const pollingTimer = ref<NodeJS.Timeout | null>(null)
 const pollingInterval = ref(3000) // 动态轮询间隔，默认3秒
 const consecutiveNoChanges = ref(0) // 连续无变化次数
@@ -286,7 +315,7 @@ const highlightTaskId = computed(() => {
 // 总页数
 const totalPages = computed(() => {
   return Math.ceil(totalTasks.value / pageSize.value)
-})
+})  
 
 // 可见的页码（最多显示5个页码）- 优化计算性能
 const visiblePages = computed(() => {
@@ -338,6 +367,12 @@ const fetchTasks = async (page: number = currentPage.value, showLoading: boolean
     
     const response = await apiService.getSearchTasks(params)
     tasks.value = response.tasks
+    expandedSearchTagTaskIds.value = expandedSearchTagTaskIds.value.filter(taskId =>
+      response.tasks.some(task => task.id === taskId)
+    )
+    expandedUnderstandingTaskIds.value = expandedUnderstandingTaskIds.value.filter(taskId =>
+      response.tasks.some(task => task.id === taskId)
+    )
     totalTasks.value = response.total
     currentPage.value = response.page
     pageSize.value = response.pageSize
@@ -538,17 +573,173 @@ const canViewTask = (task: SearchTask) => {
   return task.status === 'success'
 }
 
+type SearchTagKind = 'year' | 'paper' | 'source'
+
+interface SearchTagDisplayItem {
+  label: string
+  kind: SearchTagKind
+}
+
+const buildSearchTagItems = (task: SearchTask): SearchTagDisplayItem[] => {
+  const tags: SearchTagDisplayItem[] = []
+
+  if (task.tags.yearTag !== 0) {
+    tags.push({
+      label: formatYearTag(task.tags.yearTag),
+      kind: 'year'
+    })
+  }
+
+  task.tags.paperTag.forEach(paperTag => {
+    tags.push({
+      label: paperTag,
+      kind: 'paper'
+    })
+  })
+
+  const sourceTags = task.tags.sourceTag.length > 0 ? task.tags.sourceTag : DEFAULT_SOURCE_TAGS
+  sourceTags.forEach(sourceTag => {
+    tags.push({
+      label: sourceTag,
+      kind: 'source'
+    })
+  })
+
+  return tags
+}
+
+const isSearchTagExpanded = (taskId: number) => {
+  return expandedSearchTagTaskIds.value.includes(taskId)
+}
+
+const toggleSearchTagExpanded = (taskId: number) => {
+  if (isSearchTagExpanded(taskId)) {
+    expandedSearchTagTaskIds.value = expandedSearchTagTaskIds.value.filter(id => id !== taskId)
+    return
+  }
+
+  expandedSearchTagTaskIds.value = [...expandedSearchTagTaskIds.value, taskId]
+}
+
+const getSearchTagVisibleTags = (task: SearchTask) => {
+  const allTags = buildSearchTagItems(task)
+
+  if (isSearchTagExpanded(task.id)) {
+    return allTags
+  }
+
+  return allTags.slice(0, 6)
+}
+
+const getSearchTagHiddenCount = (task: SearchTask) => {
+  return Math.max(0, buildSearchTagItems(task).length - 6)
+}
+
+const formatPromptYearRange = (promptUnderstanding: SearchTask['promptUnderstanding']) => {
+  if (!promptUnderstanding) {
+    return ''
+  }
+
+  const { yearFrom, yearTo } = promptUnderstanding
+
+  if (yearFrom == null && yearTo == null) {
+    return ''
+  }
+
+  if (yearFrom != null && yearTo != null) {
+    return `${yearFrom} - ${yearTo}`
+  }
+
+  if (yearFrom != null) {
+    return `${yearFrom} 起`
+  }
+
+  return `截至 ${yearTo}`
+}
+
+type PromptUnderstandingPreviewTagKind = 'keyword' | 'subfield' | 'synonym' | 'include' | 'exclude'
+
+interface PromptUnderstandingPreviewTag {
+  label: string
+  kind: PromptUnderstandingPreviewTagKind
+}
+
+const buildPromptUnderstandingPreviewItems = (promptUnderstanding: SearchTask['promptUnderstanding']) => {
+  if (!promptUnderstanding) {
+    return []
+  }
+
+  const previewItems: PromptUnderstandingPreviewTag[] = [
+    ...promptUnderstanding.keywords.map(label => ({ label, kind: 'keyword' as const })),
+    ...promptUnderstanding.subfields.map(label => ({ label, kind: 'subfield' as const })),
+    ...promptUnderstanding.synonyms.map(label => ({ label, kind: 'synonym' as const })),
+    ...promptUnderstanding.includeTerms.map(label => ({ label: `+${label}`, kind: 'include' as const })),
+    ...promptUnderstanding.excludeTerms.map(label => ({ label: `-${label}`, kind: 'exclude' as const }))
+  ]
+
+  const dedupedItems = new Map<string, PromptUnderstandingPreviewTag>()
+
+  previewItems.forEach(item => {
+    const trimmedLabel = item.label.trim()
+    if (!trimmedLabel) {
+      return
+    }
+
+    const dedupeKey = `${item.kind}:${trimmedLabel}`
+    if (!dedupedItems.has(dedupeKey)) {
+      dedupedItems.set(dedupeKey, {
+        ...item,
+        label: trimmedLabel
+      })
+    }
+  })
+
+  return [...dedupedItems.values()]
+}
+
+const getPromptUnderstandingPreviewTags = (promptUnderstanding: SearchTask['promptUnderstanding']) => {
+  return buildPromptUnderstandingPreviewItems(promptUnderstanding).slice(0, 6)
+}
+
+const getPromptUnderstandingHiddenCount = (promptUnderstanding: SearchTask['promptUnderstanding']) => {
+  return Math.max(0, buildPromptUnderstandingPreviewItems(promptUnderstanding).length - 6)
+}
+
+const isPromptUnderstandingExpanded = (taskId: number) => {
+  return expandedUnderstandingTaskIds.value.includes(taskId)
+}
+
+const togglePromptUnderstandingExpanded = (taskId: number) => {
+  if (isPromptUnderstandingExpanded(taskId)) {
+    expandedUnderstandingTaskIds.value = expandedUnderstandingTaskIds.value.filter(id => id !== taskId)
+    return
+  }
+
+  expandedUnderstandingTaskIds.value = [...expandedUnderstandingTaskIds.value, taskId]
+}
+
+const getPromptUnderstandingVisibleTags = (task: SearchTask) => {
+  const allTags = buildPromptUnderstandingPreviewItems(task.promptUnderstanding)
+
+  if (isPromptUnderstandingExpanded(task.id)) {
+    return allTags
+  }
+
+  return allTags.slice(0, 6)
+}
+
 // 查看任务详情
 const viewTask = (taskId: number) => {
   const task = tasks.value.find(t => t.id === taskId)
   if (task && task.status === 'success') {
+    const keywords = task.promptUnderstanding?.keywords.join(',') || ''
     // 跳转到检索信息页
     router.push({
       name: 'search-results',
       query: { 
-        keyword: task.searchTerm, 
+        keyword: task.searchPrompt, 
         taskId: taskId.toString(),
-        keywords: task.keywords.join(',') // 将关键词数组转为逗号分隔的字符串
+        keywords
       }
     })
   }
@@ -756,17 +947,6 @@ const formatYearTag = (yearTag: number): string => {
   return String(yearTag)
 }
 
-// 格式化来源标签显示
-const formatSourceTag = (sourceTag: string): string => {
-  const sourceMap: Record<string, string> = {
-    'ALL': '全部',
-    'ARXIV': 'arXiv',
-    'DBLP': 'DBLP',
-    'GOOGLE_SCHOLAR': 'Google Scholar'
-  }
-  return sourceMap[sourceTag] || sourceTag
-}
-
 // 组件挂载时获取任务列表
 onMounted(() => {
   fetchTasks()
@@ -844,6 +1024,175 @@ onUnmounted(() => {
   bottom: -100px;
   left: 50%;
   animation-delay: 14s;
+}
+
+.search-demand-cell {
+  min-width: 260px;
+  max-width: 360px;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.6;
+}
+
+.task-row-header {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #2563eb;
+  text-transform: uppercase;
+}
+
+.search-demand-text {
+  font-size: 14px;
+  color: #1e293b;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.query-understanding-cell {
+  min-width: 340px;
+  max-width: 420px;
+}
+
+.understanding-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.understanding-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.understanding-meta-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.understanding-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.06);
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.understanding-pill-intent {
+  background: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
+}
+
+.understanding-pill-time {
+  background: rgba(13, 148, 136, 0.14);
+  color: #0f766e;
+}
+
+.understanding-pill-code {
+  background: rgba(217, 119, 6, 0.14);
+  color: #b45309;
+}
+
+.understanding-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.understanding-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.understanding-tag-keyword {
+  background: rgba(37, 99, 235, 0.1);
+  color: #2563eb;
+}
+
+.understanding-tag-subfield {
+  background: rgba(8, 145, 178, 0.12);
+  color: #0e7490;
+}
+
+.understanding-tag-synonym {
+  background: rgba(124, 58, 237, 0.12);
+  color: #7c3aed;
+}
+
+.understanding-tag-include {
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+}
+
+.understanding-tag-exclude {
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
+}
+
+.understanding-more {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.06);
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.4;
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.understanding-more:hover {
+  background: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
+}
+
+.tag-more {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(15, 23, 42, 0.06);
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.tag-more:hover {
+  background: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
+}
+
+.understanding-empty {
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+.status-reason {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #dc2626;
+  text-align: left;
+  word-break: break-word;
 }
 
 @keyframes float {
