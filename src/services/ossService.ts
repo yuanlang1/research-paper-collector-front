@@ -112,13 +112,22 @@ class OSSService {
    * @returns 文件名（最后一个 / 后的内容）
    */
   private extractFileName(pdfUrl: string): string {
-    const parts = pdfUrl.split('/')
+    const parts = this.extractObjectPath(pdfUrl).split('/')
     return parts[parts.length - 1] || 'document.pdf'
   }
 
   private extractObjectPath(pdfUrl: string): string {
-    const parts = pdfUrl.split('/')
-    return parts[parts.length - 1] || pdfUrl
+    const normalizedPath = pdfUrl.trim()
+
+    if (/^https?:\/\//i.test(normalizedPath)) {
+      try {
+        return decodeURIComponent(new URL(normalizedPath).pathname.replace(/^\/+/, '')) || normalizedPath
+      } catch {
+        return normalizedPath
+      }
+    }
+
+    return normalizedPath.replace(/^\/+/, '')
   }
 
   /**

@@ -3,13 +3,39 @@
  */
 
 export interface FetchWithTimeoutOptions extends RequestInit {
-  timeout?: number // 超时时间（毫秒），默认30秒
+  timeout?: number
+}
+
+export class TimeoutError extends Error {
+  readonly url: string
+  readonly timeout: number
+
+  constructor(url: string, timeout: number) {
+    super(`请求超时 (${timeout}ms): ${url}`)
+    this.name = 'TimeoutError'
+    this.url = url
+    this.timeout = timeout
+  }
+}
+
+export function isTimeoutError(error: unknown): error is Error {
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  const normalizedMessage = error.message.toLowerCase()
+  return (
+    error.name === 'TimeoutError' ||
+    error.name === 'AbortError' ||
+    normalizedMessage.includes('timeout') ||
+    normalizedMessage.includes('超时')
+  )
 }
 
 /**
  * 带超时控制的 fetch 请求
- * @param url 请求URL
- * @param options 请求选项（包含timeout）
+ * @param url 请求 URL
+ * @param options 请求选项
  * @returns Promise<Response>
  */
 export async function fetchWithTimeout(
@@ -18,11 +44,9 @@ export async function fetchWithTimeout(
 ): Promise<Response> {
   const { timeout = 30000, ...fetchOptions } = options
 
-  // 创建 AbortController 用于取消请求
   const controller = new AbortController()
   const signal = controller.signal
 
-  // 设置超时定时器
   const timeoutId = setTimeout(() => {
     controller.abort()
   }, timeout)
@@ -38,9 +62,8 @@ export async function fetchWithTimeout(
   } catch (error: any) {
     clearTimeout(timeoutId)
 
-    // 判断是否为超时错误
     if (error.name === 'AbortError') {
-      throw new Error(`请求超时 (${timeout}ms): ${url}`)
+      throw new TimeoutError(url, timeout)
     }
 
     throw error
@@ -49,10 +72,10 @@ export async function fetchWithTimeout(
 
 /**
  * 带重试机制的 fetch 请求
- * @param url 请求URL
+ * @param url 请求 URL
  * @param options 请求选项
- * @param retries 重试次数，默认3次
- * @param retryDelay 重试延迟（毫秒），默认1000ms
+ * @param retries 重试次数
+ * @param retryDelay 重试延迟
  * @returns Promise<Response>
  */
 export async function fetchWithRetry(
@@ -67,9 +90,8 @@ export async function fetchWithRetry(
     try {
       const response = await fetchWithTimeout(url, options)
 
-      // 如果是5xx错误，进行重试
       if (response.status >= 500 && i < retries) {
-        console.warn(`请求失败 (${response.status})，${retryDelay}ms后进行第${i + 1}次重试...`)
+        console.warn(`请求失败 (${response.status})，${retryDelay}ms 后进行第 ${i + 1} 次重试...`)
         await delay(retryDelay)
         continue
       }
@@ -77,13 +99,12 @@ export async function fetchWithRetry(
       return response
     } catch (error: any) {
       lastError = error
-      
-      // 如果是最后一次重试，直接抛出错误
+
       if (i === retries) {
         break
       }
 
-      console.warn(`请求失败: ${error.message}，${retryDelay}ms后进行第${i + 1}次重试...`)
+      console.warn(`请求失败: ${error.message}，${retryDelay}ms 后进行第 ${i + 1} 次重试...`)
       await delay(retryDelay)
     }
   }
@@ -91,10 +112,6 @@ export async function fetchWithRetry(
   throw lastError || new Error('请求失败')
 }
 
-/**
- * 延迟函数
- */
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
-

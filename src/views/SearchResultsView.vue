@@ -13,7 +13,7 @@
       <h1 class="page-title">检索信息页</h1>
         <div class="search-info">
           <div class="search-keywords">
-            <span class="keywords-label">搜索关键词:</span>
+            <span class="keywords-label">关键词:</span>
             <span 
               v-for="(keyword, index) in searchKeywords" 
               :key="index"
@@ -40,41 +40,42 @@
                     @change="handleSelectAll"
                     class="checkbox"
                   />
-                  <span>选择</span>
+                  <span>选</span>
                 </div>
               </th>
               <th class="col-title">论文标题</th>
+              <th class="col-recommendation sortable" @click="handleSort('star')">
+                <div class="sort-header">
+                  <span>推荐星数</span>
+                  <span class="sort-icon">
+                    <div class="sort-arrows">
+                      <i class="sort-arrow sort-up" :class="{ 'active': getSortDirection('star') === 'asc' }"></i>
+                      <i class="sort-arrow sort-down" :class="{ 'active': getSortDirection('star') === 'desc' }"></i>
+                    </div>
+                  </span>
+                </div>
+              </th>
               <th class="col-authors">作者列表</th>
-              <th class="col-year sortable" @click="handleSort('published_date')">
+              <th class="col-year sortable" @click="handleSort('publishedDate')">
                 <div class="sort-header">
-                  <span>发表年份</span>
+                  <span>年份</span>
                   <span class="sort-icon">
                     <div class="sort-arrows">
-                      <i class="sort-arrow sort-up" :class="{ 'active': getSortDirection('published_date') === 'asc' }"></i>
-                      <i class="sort-arrow sort-down" :class="{ 'active': getSortDirection('published_date') === 'desc' }"></i>
+                      <i class="sort-arrow sort-up" :class="{ 'active': getSortDirection('publishedDate') === 'asc' }"></i>
+                      <i class="sort-arrow sort-down" :class="{ 'active': getSortDirection('publishedDate') === 'desc' }"></i>
                     </div>
                   </span>
                 </div>
               </th>
-              <th class="col-journal">期刊或会议名称</th>
+              <th class="col-journal">发表刊物</th>
               <th class="col-venue-type">类型</th>
-              <th class="col-tags sortable" @click="handleSort('tags')">
-                <div class="sort-header">
-                  <span>标签</span>
-                  <span class="sort-icon">
-                    <div class="sort-arrows">
-                      <i class="sort-arrow sort-up" :class="{ 'active': getSortDirection('tags') === 'asc' }"></i>
-                      <i class="sort-arrow sort-down" :class="{ 'active': getSortDirection('tags') === 'desc' }"></i>
-                    </div>
-                  </span>
-                </div>
-              </th>
+              <th class="col-tags">标签</th>
               <th class="col-keywords">关键词</th>
               <th class="col-abstract">原文摘要</th>
               <th class="col-summary">整理后摘要</th>
               <th class="col-citations sortable" @click="handleSort('citations')">
                 <div class="sort-header">
-                  <span>引用次数</span>
+                  <span>引用</span>
                   <span class="sort-icon">
                     <div class="sort-arrows">
                       <i class="sort-arrow sort-up" :class="{ 'active': getSortDirection('citations') === 'asc' }"></i>
@@ -83,8 +84,7 @@
                   </span>
                 </div>
               </th>
-              <th class="col-link">官网链接</th>
-              <th class="col-pdf">链接</th>
+              <th class="col-link">链接</th>
             </tr>
           </thead>
           <tbody>
@@ -106,34 +106,56 @@
                   <h3 class="paper-title">{{ paper.title }}</h3>
                 </div>
               </td>
+              <td class="col-recommendation">
+                <div class="recommendation-cell">
+                  <div class="star-rating" :title="`${paper.star || 0} 星推荐`">
+                    <span
+                      v-for="index in 5"
+                      :key="index"
+                      class="star-icon"
+                      :class="{ active: index <= (paper.star || 0) }"
+                    >
+                      ★
+                    </span>
+                    <span class="star-score">{{ paper.star || 0 }}</span>
+                  </div>
+                  <div class="recommendation-actions">
+                    <button
+                      class="recommendation-btn"
+                      type="button"
+                      :disabled="!paper.recommendation"
+                      @click="showRecommendationModal(paper)"
+                    >
+                      推荐语
+                    </button>
+                    <button
+                      class="recommendation-btn reason-btn"
+                      type="button"
+                      :disabled="!(paper.reasons?.length)"
+                      @click="showReasonsModal(paper)"
+                    >
+                      推荐理由
+                    </button>
+                  </div>
+                </div>
+              </td>
               <td class="col-authors">
                 <div class="authors-tags">
-                  <template v-if="!paper.authorsExpanded && paper.authors.length > 3">
-                    <span 
-                      v-for="(author, index) in paper.authors.slice(0, 3)" 
-                      :key="index"
-                      class="author-tag"
-                    >
-                      {{ author }}
-                    </span>
-                    <span class="expand-authors" @click="toggleAuthors(paper.id)">...</span>
-                  </template>
-                  <template v-else>
-                    <span 
-                      v-for="(author, index) in paper.authors" 
-                      :key="index"
-                      class="author-tag"
-                    >
-                      {{ author }}
-                    </span>
-                    <span 
-                      v-if="paper.authorsExpanded && paper.authors.length > 3"
-                      class="collapse-authors" 
-                      @click="toggleAuthors(paper.id)"
-                    >
-                      收起
-                    </span>
-                  </template>
+                  <span
+                    v-for="(author, index) in getVisibleAuthors(paper)"
+                    :key="`${paper.id}-author-${index}-${author}`"
+                    class="author-tag"
+                  >
+                    {{ author }}
+                  </span>
+                  <button
+                    v-if="getAuthorHiddenCount(paper) > 0 || isAuthorsExpanded(paper.id)"
+                    class="tag-more"
+                    type="button"
+                    @click="toggleAuthorsExpanded(paper.id)"
+                  >
+                    {{ isAuthorsExpanded(paper.id) ? '收起' : `+${getAuthorHiddenCount(paper)}` }}
+                  </button>
                 </div>
               </td>
               <td class="col-year">{{ paper.year }}</td>
@@ -171,13 +193,21 @@
               </td>
               <td class="col-keywords">
                 <div class="keywords-tags">
-                  <span 
-                    v-for="(keyword, index) in paper.keywords" 
-                    :key="index"
+                  <span
+                    v-for="(keyword, index) in getVisibleKeywords(paper)"
+                    :key="`${paper.id}-keyword-${index}-${keyword}`"
                     class="keyword-tag"
                   >
                     {{ keyword }}
                   </span>
+                  <button
+                    v-if="getKeywordHiddenCount(paper) > 0 || isKeywordsExpanded(paper.id)"
+                    class="tag-more keyword-more"
+                    type="button"
+                    @click="toggleKeywordsExpanded(paper.id)"
+                  >
+                    {{ isKeywordsExpanded(paper.id) ? '收起' : `+${getKeywordHiddenCount(paper)}` }}
+                  </button>
                 </div>
               </td>
               <td class="col-abstract">
@@ -212,7 +242,7 @@
                 </div>
               </td>
               <td class="col-link">
-                <div class="paper-link">
+                <div class="resource-links">
                   <a 
                     v-if="paper.link" 
                     :href="paper.link" 
@@ -220,30 +250,30 @@
                     class="link-btn"
                     title="查看原文"
                   >
-                    🔗 原文
+                    原文
                   </a>
-                  <span v-else class="no-data">-</span>
-                </div>
-              </td>
-              <td class="col-pdf">
-                <div class="pdf-link">
-                  <div v-if="paper.pdfUrl" class="action-buttons">
-                    <button 
-                      @click="previewPDFInBrowser(paper.pdfUrl)"
-                      class="action-btn pdf-btn"
-                      title="预览 PDF"
-                    >
-                      📄 PDF
-                    </button>
-                    <button 
-                      @click="openMarkdownViewer(paper)"
-                      class="action-btn md-btn"
-                      title="查看 Markdown"
-                    >
-                      📝 MD
-                    </button>
-                  </div>
-                  <span v-else class="no-data">-</span>
+                  <button 
+                    v-if="getPaperPdfFileName(paper)"
+                    @click="previewPDFInBrowser(paper)"
+                    class="action-btn pdf-btn compact-link-btn"
+                    title="预览 PDF"
+                  >
+                    PDF
+                  </button>
+                  <button 
+                    v-if="getPaperMdFileName(paper)"
+                    @click="openMarkdownViewer(paper)"
+                    class="action-btn md-btn compact-link-btn"
+                    title="查看 Markdown"
+                  >
+                    MD
+                  </button>
+                  <span
+                    v-if="!paper.link && !getPaperPdfFileName(paper) && !getPaperMdFileName(paper)"
+                    class="no-data"
+                  >
+                    -
+                  </span>
                 </div>
               </td>
             </tr>
@@ -428,15 +458,17 @@ const pageSize = ref(5)
 
 // 多字段排序状态
 const orderInfo = ref<OrderInfo[]>([
-  { orderWord: 'published_date', orderId: 1 }, // 发表年份降序
-  { orderWord: 'citations', orderId: 1 },      // 引用次数降序
-  { orderWord: 'tags', orderId: 1 }            // 标签降序
+  { orderWord: 'star', orderId: 1 },           // 推荐星数降序
+  { orderWord: 'publishedDate', orderId: 1 },  // 发表年份降序
+  { orderWord: 'citations', orderId: 1 }       // 引用次数降序
 ])
 
 // 选择状态
 const selectedPapers = ref<string[]>([])
 const selectAll = ref(false)
 const isGlobalSelectAll = ref(false) // 全局全选模式
+const expandedAuthorPaperIds = ref<string[]>([])
+const expandedKeywordPaperIds = ref<string[]>([])
 
 // 模态窗口状态
 const showModal = ref(false)
@@ -591,6 +623,22 @@ const showSummaryModal = (paper: Paper) => {
   showModal.value = true
 }
 
+const showRecommendationModal = (paper: Paper) => {
+  modalTitle.value = `推荐语 - ${paper.title}`
+  modalContent.value = paper.recommendation || '暂无推荐语'
+  resetModalPosition()
+  showModal.value = true
+}
+
+const showReasonsModal = (paper: Paper) => {
+  modalTitle.value = `推荐理由 - ${paper.title}`
+  modalContent.value = paper.reasons?.length
+    ? paper.reasons.map(reason => `- ${reason}`).join('\n')
+    : '暂无推荐理由'
+  resetModalPosition()
+  showModal.value = true
+}
+
 // 关闭模态窗口
 const closeModal = () => {
   showModal.value = false
@@ -681,32 +729,77 @@ const stopResize = () => {
   document.removeEventListener('mouseup', stopResize)
 }
 
-// 切换作者列表展开状态
-const toggleAuthors = (paperId: string) => {
-  const paper = papers.value.find(p => p.id === paperId)
-  if (paper) {
-    paper.authorsExpanded = !paper.authorsExpanded
-  }
+const TAG_PREVIEW_LIMIT = 6
+
+const isAuthorsExpanded = (paperId: string) => expandedAuthorPaperIds.value.includes(paperId)
+
+const toggleAuthorsExpanded = (paperId: string) => {
+  expandedAuthorPaperIds.value = isAuthorsExpanded(paperId)
+    ? expandedAuthorPaperIds.value.filter(id => id !== paperId)
+    : [...expandedAuthorPaperIds.value, paperId]
+}
+
+const getVisibleAuthors = (paper: Paper) => {
+  return isAuthorsExpanded(paper.id) ? paper.authors : paper.authors.slice(0, TAG_PREVIEW_LIMIT)
+}
+
+const getAuthorHiddenCount = (paper: Paper) => {
+  return Math.max(0, paper.authors.length - TAG_PREVIEW_LIMIT)
+}
+
+const isKeywordsExpanded = (paperId: string) => expandedKeywordPaperIds.value.includes(paperId)
+
+const toggleKeywordsExpanded = (paperId: string) => {
+  expandedKeywordPaperIds.value = isKeywordsExpanded(paperId)
+    ? expandedKeywordPaperIds.value.filter(id => id !== paperId)
+    : [...expandedKeywordPaperIds.value, paperId]
+}
+
+const getVisibleKeywords = (paper: Paper) => {
+  return isKeywordsExpanded(paper.id) ? paper.keywords : paper.keywords.slice(0, TAG_PREVIEW_LIMIT)
+}
+
+const getKeywordHiddenCount = (paper: Paper) => {
+  return Math.max(0, paper.keywords.length - TAG_PREVIEW_LIMIT)
+}
+
+const getPaperPdfFileName = (paper: Paper) => {
+  if (paper.pdfFileName) return paper.pdfFileName
+  if (paper.ossName) return `pdf/${paper.ossName}.pdf`
+  return paper.pdfUrl || ''
+}
+
+const getPaperMdFileName = (paper: Paper) => {
+  if (paper.mdFileName) return paper.mdFileName
+  if (paper.ossName) return `md/${paper.ossName}.md`
+  return paper.pdfUrl ? paper.pdfUrl.replace(/\.pdf$/i, '.md') : ''
 }
 
 // 打开文档查看器
 const openDocumentViewer = (paper: Paper) => {
-  const mdFileName = paper.pdfUrl ? paper.pdfUrl.replace(/\.pdf$/i, '.md') : ''
+  const pdfFileName = getPaperPdfFileName(paper)
+  const mdFileName = getPaperMdFileName(paper)
   router.push({
     name: 'document',
     query: {
       title: paper.title,
-      pdfUrl: paper.pdfUrl || '',
+      pdfUrl: pdfFileName,
       mdFileName: mdFileName
     }
   })
 }
 
 // 在浏览器中预览 PDF
-const previewPDFInBrowser = async (pdfUrl: string) => {
+const previewPDFInBrowser = async (paper: Paper) => {
   try {
+    const pdfFileName = getPaperPdfFileName(paper)
+    if (!pdfFileName) {
+      showErrorMessage('未找到 PDF 文件名')
+      return
+    }
+
     isLoading.value = true
-    await ossService.previewPDF(pdfUrl)
+    await ossService.previewPDF(pdfFileName)
   } catch (error: any) {
     console.error('预览 PDF 失败:', error)
     const errorMsg = error?.message || '预览 PDF 失败'
@@ -724,7 +817,7 @@ const previewPDFInBrowser = async (pdfUrl: string) => {
 
 // 打开 Markdown 查看器
 const openMarkdownViewer = (paper: Paper) => {
-  const mdFileName = paper.pdfUrl ? paper.pdfUrl.replace(/\.pdf$/i, '.md') : ''
+  const mdFileName = getPaperMdFileName(paper)
   router.push({
     name: 'document',
     query: {
@@ -755,6 +848,9 @@ const fetchSearchResults = async () => {
       abstractExpanded: false,
       summaryExpanded: false
     }))
+    const currentPaperIds = new Set(papers.value.map(paper => paper.id))
+    expandedAuthorPaperIds.value = expandedAuthorPaperIds.value.filter(paperId => currentPaperIds.has(paperId))
+    expandedKeywordPaperIds.value = expandedKeywordPaperIds.value.filter(paperId => currentPaperIds.has(paperId))
     
     totalResults.value = result.totalResults
     totalPages.value = result.totalPages
@@ -1081,15 +1177,6 @@ onMounted(async () => {
   font-size: 13px;
 }
 
-/* 为文本内容列的表头设置左对齐 */
-.results-table th.col-title,
-.results-table th.col-authors,
-.results-table th.col-journal,
-.results-table th.col-abstract,
-.results-table th.col-summary {
-  text-align: left;
-}
-
 .results-table td {
   padding: 12px 8px;
   border-bottom: 1px solid #f0f0f0;
@@ -1098,21 +1185,33 @@ onMounted(async () => {
 }
 
 .col-select { 
-  width: auto; 
-  min-width: 80px; 
+  width: 52px; 
+  min-width: 52px; 
   text-align: center;
+}
+
+.results-table th.col-select,
+.results-table td.col-select {
+  padding-left: 4px;
+  padding-right: 4px;
 }
 
 .select-header {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
+  font-size: 12px;
 }
 .col-title { 
   width: auto; 
   min-width: 200px; 
   text-align: left;
+}
+.col-recommendation {
+  width: auto;
+  min-width: 170px;
+  text-align: center;
 }
 .col-authors { 
   width: auto; 
@@ -1163,12 +1262,7 @@ onMounted(async () => {
 }
 .col-link { 
   width: auto; 
-  min-width: 100px; 
-  text-align: center;
-}
-.col-pdf { 
-  width: auto; 
-  min-width: 100px; 
+  min-width: 140px; 
   text-align: center;
 }
 
@@ -1182,8 +1276,8 @@ onMounted(async () => {
 
 
 .checkbox {
-  width: 16px;
-  height: 13px;
+  width: 14px;
+  height: 14px;
   cursor: pointer;
 }
 
@@ -1199,6 +1293,82 @@ onMounted(async () => {
   line-height: 1.4;
   word-wrap: break-word;
   white-space: normal;
+}
+
+.recommendation-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.star-rating {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.star-icon {
+  color: #cbd5e1;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.star-icon.active {
+  color: #f59e0b;
+  text-shadow: 0 1px 3px rgba(245, 158, 11, 0.25);
+}
+
+.star-score {
+  margin-left: 5px;
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.recommendation-actions {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.recommendation-btn {
+  padding: 4px 8px;
+  border: 1px solid #f59e0b;
+  border-radius: 999px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.recommendation-btn:hover:not(:disabled) {
+  background: #f59e0b;
+  color: #ffffff;
+  box-shadow: 0 3px 8px rgba(245, 158, 11, 0.25);
+}
+
+.recommendation-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.recommendation-btn.reason-btn {
+  border-color: #38bdf8;
+  background: #f0f9ff;
+  color: #0369a1;
+}
+
+.recommendation-btn.reason-btn:hover:not(:disabled) {
+  background: #0ea5e9;
+  color: #ffffff;
+  box-shadow: 0 3px 8px rgba(14, 165, 233, 0.25);
 }
 
 .paper-abstract {
@@ -1483,6 +1653,7 @@ onMounted(async () => {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+  align-items: center;
 }
 
 .author-tag {
@@ -1493,6 +1664,37 @@ onMounted(async () => {
   font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
+}
+
+.tag-more {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border: none;
+  border-radius: 12px;
+  background: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.tag-more:hover {
+  background: rgba(37, 99, 235, 0.14);
+  color: #1d4ed8;
+}
+
+.tag-more.keyword-more {
+  background: rgba(124, 58, 237, 0.1);
+  color: #7c3aed;
+}
+
+.tag-more.keyword-more:hover {
+  background: rgba(124, 58, 237, 0.16);
+  color: #5b21b6;
 }
 
 /* 级别标签 */
@@ -1624,6 +1826,7 @@ onMounted(async () => {
   display: flex;
   flex-wrap: wrap;
   gap: 3px;
+  align-items: center;
 }
 
 .keyword-tag {
@@ -1810,22 +2013,34 @@ onMounted(async () => {
 }
 
 /* 论文链接 */
+.resource-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+}
+
 .link-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #1976d2;
+  background: #eff6ff;
   color: #1976d2;
   text-decoration: none;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
+  line-height: 1.2;
+  transition: all 0.2s;
 }
 
 .link-btn:hover {
-  text-decoration: underline;
-}
-
-/* PDF链接 */
-.pdf-link {
-  display: flex;
-  gap: 8px;
-  align-items: center;
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-color: #1d4ed8;
 }
 
 .action-buttons {
@@ -1834,7 +2049,7 @@ onMounted(async () => {
 }
 
 .action-btn {
-  padding: 4px 12px;
+  padding: 4px 10px;
   border-radius: 6px;
   border: 1px solid;
   text-decoration: none;
@@ -1846,6 +2061,11 @@ onMounted(async () => {
   cursor: pointer;
   transition: all 0.2s;
   line-height: 1.2;
+}
+
+.compact-link-btn {
+  min-width: auto;
+  border-radius: 999px;
 }
 
 .pdf-btn {
@@ -2189,7 +2409,7 @@ onMounted(async () => {
 .sort-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 4px;
   width: 100%;
 }

@@ -37,8 +37,8 @@ const handleClick = () => {
 
 <style scoped>
 .search-button {
-  width: 42px;
-  height: 42px;
+  width: 56px;
+  height: 56px;
   border: none;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #667eea 100%);
   background-size: 200% 100%;
@@ -47,13 +47,15 @@ const handleClick = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 11px;
+  padding: 14px;
   border-radius: 50%;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-position 0.5s ease;
-  box-shadow: 0 4px 6px rgba(118, 75, 162, 0.3);
+  box-shadow: 0 10px 18px rgba(118, 75, 162, 0.24);
 }
 
 .search-button svg {
+  width: 32px;
+  height: 32px;
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 

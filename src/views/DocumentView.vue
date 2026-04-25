@@ -62,6 +62,13 @@ const mdContent = ref('')
 const paperTitle = computed(() => route.query.title as string || '文档查看')
 const mdFileNameParam = computed(() => route.query.mdFileName as string || '')
 
+const getObjectPath = (objectPath: string) => objectPath.trim().replace(/^\/+/, '')
+
+const getFileName = (objectPath: string) => {
+  const parts = getObjectPath(objectPath).split('/')
+  return parts[parts.length - 1] || objectPath
+}
+
 const renderedMarkdown = computed(() => {
   if (!mdContent.value) return ''
   return marked.parse(mdContent.value)
@@ -75,7 +82,7 @@ const loadMarkdown = async () => {
     isLoading.value = true
     const client = await ossService.getOSSClient()
     
-    const objectPath = mdFileNameParam.value.split('/').pop() || mdFileNameParam.value
+    const objectPath = getObjectPath(mdFileNameParam.value)
     
     console.log('加载 Markdown 文件:', objectPath)
     
@@ -97,8 +104,8 @@ const downloadFile = async (type: 'md') => {
     if (type === 'md' && mdFileNameParam.value) {
       const client = await ossService.getOSSClient()
       
-      const objectPath = mdFileNameParam.value.split('/').pop() || mdFileNameParam.value
-      const fileName = objectPath
+      const objectPath = getObjectPath(mdFileNameParam.value)
+      const fileName = getFileName(objectPath)
       
       console.log('下载 Markdown 文件:', objectPath)
       
@@ -520,4 +527,3 @@ onMounted(async () => {
   }
 }
 </style>
-

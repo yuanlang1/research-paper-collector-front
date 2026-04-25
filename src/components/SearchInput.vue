@@ -4,7 +4,7 @@
       <input
         v-model="inputValue"
         type="text"
-        placeholder="搜索论文相关词..."
+        placeholder="请输入你的论文检索需求"
         class="search-input"
         @keyup.enter="handleSearch"
         @input="handleInput"
@@ -87,7 +87,7 @@ const handleClear = () => {
 <style scoped>
 .search-input-container {
   width: 100%;
-  max-width: 355px;
+  max-width: none;
 }
 
 .search-input-wrapper {
@@ -97,26 +97,26 @@ const handleClear = () => {
 
 .search-input {
   width: 100%;
-  height: 44px;
-  padding: 14px 16px;
-  padding-right: 140px; /* 预留右侧区域给下拉框和清空按钮 */
-  border: 1px solid #d9d9d9;
-  border-radius: 9999px;
-  font-size: 14px;
+  height: 64px;
+  padding: 18px 20px;
+  padding-right: 64px;
+  border: none;
+  border-radius: 18px;
+  font-size: 17px;
   color: #1e1e1e;
-  background-color: #ffffff;
+  background: rgba(255, 255, 255, 0.9);
   outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: box-shadow 0.2s ease, background-color 0.2s ease;
 }
 
 .search-input-right {
   position: absolute;
-  right: 2px;
+  right: 16px;
   top: 0;
   bottom: 0;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
 .search-input::placeholder {
@@ -124,13 +124,13 @@ const handleClear = () => {
 }
 
 .search-input:focus {
-  border-color: #0088ff;
-  box-shadow: 0 0 0 2px rgba(0, 136, 255, 0.1);
+  box-shadow: 0 0 0 2px rgba(0, 136, 255, 0.08);
+  background: rgba(255, 255, 255, 0.98);
 }
 
 .clear-button {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   border: none;
   background: none;
   cursor: pointer;
@@ -151,8 +151,6 @@ const handleClear = () => {
 }
 
 .search-input-extra {
-  margin-top: 6px;
-  display: flex;
-  justify-content: flex-start;
+  display: none;
 }
 </style>
