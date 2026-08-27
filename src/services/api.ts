@@ -1,11 +1,19 @@
 // API 服务配置
 import type { Router } from 'vue-router'
-import { fetchWithTimeout, fetchWithRetry, isTimeoutError, type FetchWithTimeoutOptions } from '@/utils/fetchWithTimeout'
-import { normalizePaperTag, type SourceTag, type SubmitPaperTag } from '@/constants/searchTagMappings'
+import {
+  fetchWithTimeout,
+  fetchWithRetry,
+  isTimeoutError,
+  type FetchWithTimeoutOptions
+} from '@/utils/fetchWithTimeout'
+import {
+  normalizePaperTag,
+  type SourceTag,
+  type SubmitPaperTag
+} from '@/constants/searchTagMappings'
 import { errorHandler } from '@/utils/errorHandler'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
-
 
 // 搜索历史接口
 export interface SearchHistory {
@@ -107,7 +115,7 @@ export interface PaperRaw {
 // 排序信息接口
 export interface OrderInfo {
   orderWord: string // 排序字段
-  orderId: number   // 排序方式: 0=asc, 1=desc
+  orderId: number // 排序方式: 0=asc, 1=desc
 }
 
 // 论文搜索请求参数
@@ -172,6 +180,51 @@ export interface QueryUnderstandingResponse {
   other: null
 }
 
+// 检索源策略配置
+export interface SearchStrategyConfig {
+  source: string
+  name: string
+  totalCount: number
+  enabled: boolean
+}
+
+export interface SearchStrategyConfigResponse {
+  code: number
+  success: boolean
+  message: string
+  other: string | null
+  data: SearchStrategyConfig[]
+}
+
+export interface ConfigSaveResponse {
+  code: number
+  success: boolean
+  message?: string
+  other?: string | null
+  data: boolean
+}
+
+// AI 配置
+export type AiProvider = 'DASHSCOPE' | 'OPENAI_COMPATIBLE'
+
+export interface AiConfig {
+  provider: AiProvider
+  baseUrl: string
+  model: string
+  apiKey: string
+  temperature: number
+  maxTokens: number
+  timeoutMs: number
+}
+
+export interface AiConfigResponse {
+  code: number
+  success?: boolean
+  message?: string
+  other?: string | null
+  data: AiConfig
+}
+
 // 新建搜索任务请求接口
 export interface NewTaskRequest {
   prompt: string
@@ -181,6 +234,66 @@ export interface NewTaskRequest {
     sourceTag: SourceTag[]
   }
   promptUnderstanding: QueryUnderstanding
+}
+
+export type BackendTaskState =
+  | 'SEARCH_PENDING'
+  | 'SEARCH_RUNNING'
+  | 'SEARCH_COMPLETED'
+  | 'SEARCH_FAILED'
+  | 'SEARCH_PARTIAL_COMPLETED'
+  | 'CANCELLED'
+  | 'RAG_RUNNING'
+  | 'RAG_FAILED'
+  | 'RAG_COMPLETED'
+
+export type TaskDisplayStatus = 'searching' | 'success' | 'failed' | 'cancelled' | 'unknown'
+
+export interface TaskStatePresentation {
+  state: BackendTaskState | null
+  status: TaskDisplayStatus
+  progress: string
+}
+
+const taskStatesByCode: Record<number, BackendTaskState> = {
+  0: 'SEARCH_PENDING',
+  1: 'SEARCH_RUNNING',
+  2: 'SEARCH_COMPLETED',
+  3: 'SEARCH_FAILED',
+  4: 'SEARCH_PARTIAL_COMPLETED',
+  5: 'CANCELLED',
+  6: 'RAG_RUNNING',
+  7: 'RAG_FAILED',
+  8: 'RAG_COMPLETED'
+}
+
+const taskStatePresentations: Record<BackendTaskState, Omit<TaskStatePresentation, 'state'>> = {
+  SEARCH_PENDING: { status: 'searching', progress: '等待检索' },
+  SEARCH_RUNNING: { status: 'searching', progress: '正在检索' },
+  SEARCH_COMPLETED: { status: 'success', progress: '检索完成' },
+  SEARCH_FAILED: { status: 'failed', progress: '检索失败' },
+  SEARCH_PARTIAL_COMPLETED: { status: 'success', progress: '检索部分完成' },
+  CANCELLED: { status: 'cancelled', progress: '已取消' },
+  RAG_RUNNING: { status: 'searching', progress: '正在生成 RAG 结果' },
+  RAG_FAILED: { status: 'failed', progress: 'RAG 生成失败' },
+  RAG_COMPLETED: { status: 'success', progress: 'RAG 结果已完成' }
+}
+
+export function getTaskStatePresentation(state: string | number): TaskStatePresentation {
+  const normalizedState = typeof state === 'number' ? taskStatesByCode[state] : state
+  const presentation = taskStatePresentations[normalizedState as BackendTaskState]
+
+  return presentation
+    ? { state: normalizedState as BackendTaskState, ...presentation }
+    : { state: null, status: 'unknown', progress: '未知状态' }
+}
+
+export function isTaskStateActive(state: BackendTaskState | null): boolean {
+  return state === 'SEARCH_PENDING' || state === 'SEARCH_RUNNING' || state === 'RAG_RUNNING'
+}
+
+export function isTaskStateViewable(state: BackendTaskState | null): boolean {
+  return state === 'SEARCH_COMPLETED' || state === 'SEARCH_PARTIAL_COMPLETED' || state === 'RAG_COMPLETED'
 }
 
 // 后端返回的搜索任务原始数据
@@ -193,7 +306,7 @@ export interface SearchTaskRaw {
     paperTag: string[]
     sourceTag: string[]
   }
-  state: string
+  state: BackendTaskState | number
   errorMessage: string | null // 错误信息，任务失败时显示
   searchTime: string
 }
@@ -209,8 +322,9 @@ export interface SearchTask {
     sourceTag: string[]
   }
   searchTime: string
+  state: BackendTaskState | null
   progress: string
-  status: 'searching' | 'success' | 'failed' | 'cancelled'
+  status: TaskDisplayStatus
   errorMessage?: string | null // 错误信息
 }
 
@@ -218,8 +332,8 @@ export interface SearchTask {
 export interface TasksRequestParams {
   pageIndex: number
   pageSize: number
-  orderWord?: string  // 排序列名
-  orderId?: number    // 排序方式: 0=asc, 1=desc
+  orderWord?: string // 排序列名
+  orderId?: number // 排序方式: 0=asc, 1=desc
 }
 
 // 任务列表响应接口
@@ -242,7 +356,7 @@ export interface TaskStatusResponse {
   code: number
   success: boolean
   data: {
-    state: string // 状态字符串: PENDING, RUNNING, COMPLETED, FAILED, CANCELLED
+    state: BackendTaskState | number // 状态字符串: PENDING, RUNNING, COMPLETED, FAILED, CANCELLED
     errorMessage: string | null // 错误信息
   }
   message: string
@@ -306,7 +420,7 @@ export interface OSSCredentialsResponse {
 export interface SearchResponse {
   code: number
   success: boolean
-  data: number  // 直接返回任务ID
+  data: number // 直接返回任务ID
   message: string
   other: null
 }
@@ -323,32 +437,40 @@ class ApiService {
     this.router = router
   }
 
-  private async request<T>(endpoint: string, options?: FetchWithTimeoutOptions, useRetry: boolean = false): Promise<T> {
+  private async request<T>(
+    endpoint: string,
+    options?: FetchWithTimeoutOptions,
+    useRetry: boolean = false
+  ): Promise<T> {
     const url = `${API_BASE_URL}${endpoint}`
+
+    const requestHeaders = {
+      ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
+      ...options?.headers
+    }
 
     try {
       // 根据参数选择是否使用重试机制
-      const response = useRetry 
-        ? await fetchWithRetry(url, {
-            headers: {
-              'Content-Type': 'application/json',
-              ...options?.headers,
+      const response = useRetry
+        ? await fetchWithRetry(
+            url,
+            {
+              headers: requestHeaders,
+              timeout: 60000, // 增加到60秒超时
+              ...options
             },
-            timeout: 60000, // 增加到60秒超时
-            ...options,
-          }, 2, 2000) // 重试2次，间隔2秒
+            2,
+            2000
+          ) // 重试2次，间隔2秒
         : await fetchWithTimeout(url, {
-            headers: {
-              'Content-Type': 'application/json',
-              ...options?.headers,
-            },
+            headers: requestHeaders,
             timeout: 60000, // 增加到60秒超时
-            ...options,
+            ...options
           })
 
       if (!response.ok) {
         const errorStatus = response.status
-        
+
         // 记录API错误
         errorHandler.handleApiError(
           new Error(`HTTP ${errorStatus}: ${endpoint}`),
@@ -386,7 +508,7 @@ class ApiService {
       pageSize: pageSize.toString()
     })
     const response = await this.request<RecentSearchResponse>(`/task/recent?${params}`, {}, true) // 使用重试
-    return response.data.list.map(item => ({
+    return response.data.list.map((item) => ({
       id: item.id,
       keyword: item.searchPrompt,
       searchTime: item.searchTime
@@ -394,7 +516,10 @@ class ApiService {
   }
 
   // 获取搜索历史（带分页信息）
-  async getSearchHistoryWithPagination(pageIndex: number = 1, pageSize: number = 10): Promise<RecentSearchResponse> {
+  async getSearchHistoryWithPagination(
+    pageIndex: number = 1,
+    pageSize: number = 10
+  ): Promise<RecentSearchResponse> {
     const params = new URLSearchParams({
       pageIndex: pageIndex.toString(),
       pageSize: pageSize.toString()
@@ -424,10 +549,14 @@ class ApiService {
       pageSize: size,
       orderInfo
     }
-    const response = await this.request<SearchResultResponse>('/paper/get', {
-      method: 'POST',
-      body: JSON.stringify(requestBody)
-    }, true) // 使用重试
+    const response = await this.request<SearchResultResponse>(
+      '/paper/get',
+      {
+        method: 'POST',
+        body: JSON.stringify(requestBody)
+      },
+      true
+    ) // 使用重试
     if (response.code === 0 && response.success) {
       return {
         papers: response.data.list.map((paper) => this.convertPaperData(paper)),
@@ -441,13 +570,29 @@ class ApiService {
     }
   }
 
-  // 查询理解
-  async queryUnderstanding(prompt: string): Promise<QueryUnderstandingResponse> {
-    const params = new URLSearchParams({
-      prompt
+  // 获取检索源策略配置
+  async getSearchStrategyConfig(): Promise<SearchStrategyConfigResponse> {
+    return await this.request<SearchStrategyConfigResponse>('/config/strategy')
+  }
+
+  // 保存检索源策略配置
+  async saveSearchStrategyConfig(configs: SearchStrategyConfig[]): Promise<ConfigSaveResponse> {
+    return await this.request<ConfigSaveResponse>('/config/strategy', {
+      method: 'POST',
+      body: JSON.stringify(configs)
     })
-    return await this.request<QueryUnderstandingResponse>(`/ai/query-understanding?${params}`, {
-      timeout: 20000
+  }
+
+  // 获取 AI 配置
+  async getAiConfig(): Promise<AiConfigResponse> {
+    return await this.request<AiConfigResponse>('/config/ai')
+  }
+
+  // 保存 AI 配置
+  async saveAiConfig(config: AiConfig): Promise<ConfigSaveResponse> {
+    return await this.request<ConfigSaveResponse>('/config/ai', {
+      method: 'POST',
+      body: JSON.stringify(config)
     })
   }
 
@@ -475,29 +620,16 @@ class ApiService {
     }
   }
 
-  // 状态转换函数
-  private convertTaskStatus(taskState: string): { status: 'searching' | 'success' | 'failed' | 'cancelled', progress: string } {
-    switch (taskState) {
-      case 'PENDING':
-        return { status: 'searching', progress: '等待中' }
-      case 'RUNNING':
-        return { status: 'searching', progress: '正在检索' }
-      case 'COMPLETED':
-        return { status: 'success', progress: '检索成功' }
-      case 'FAILED':
-        return { status: 'failed', progress: '检索失败' }
-      case 'CANCELLED':
-        return { status: 'cancelled', progress: '已取消' }
-      default:
-        return { status: 'searching', progress: '等待中' }
-    }
+  // 转换后端任务状态为前端展示状态
+  private convertTaskStatus(taskState: SearchTaskRaw['state']): TaskStatePresentation {
+    return getTaskStatePresentation(taskState)
   }
 
   // 转换原始任务数据为前端格式
   private convertRawTask(rawTask: SearchTaskRaw): SearchTask {
     const { status, progress } = this.convertTaskStatus(rawTask.state)
     const normalizedPaperTags = (rawTask.tags.paperTag || [])
-      .map(paperTag => normalizePaperTag(paperTag))
+      .map((paperTag) => normalizePaperTag(paperTag))
       .filter((paperTag): paperTag is string => Boolean(paperTag))
 
     return {
@@ -526,7 +658,9 @@ class ApiService {
   }
 
   // 获取搜索任务列表
-  async getSearchTasks(params: TasksRequestParams): Promise<{ tasks: SearchTask[], total: number, page: number, pageSize: number }> {
+  async getSearchTasks(
+    params: TasksRequestParams
+  ): Promise<{ tasks: SearchTask[]; total: number; page: number; pageSize: number }> {
     const requestBody: TasksRequestParams = {
       pageIndex: params.pageIndex,
       pageSize: params.pageSize
@@ -534,13 +668,17 @@ class ApiService {
     if (params.orderWord) requestBody.orderWord = params.orderWord
     if (params.orderId !== undefined) requestBody.orderId = params.orderId
 
-    const response = await this.request<TasksResponse>('/task/tasks', {
-      method: 'POST',
-      body: JSON.stringify(requestBody)
-    }, true) // 使用重试
+    const response = await this.request<TasksResponse>(
+      '/task/tasks',
+      {
+        method: 'POST',
+        body: JSON.stringify(requestBody)
+      },
+      true
+    ) // 使用重试
     if (response.code === 0 && response.success) {
       return {
-        tasks: response.data.list.map(rawTask => this.convertRawTask(rawTask)),
+        tasks: response.data.list.map((rawTask) => this.convertRawTask(rawTask)),
         total: response.data.total,
         page: response.data.pageNumber,
         pageSize: response.data.pageSize
@@ -604,7 +742,6 @@ class ApiService {
       return [reasons]
     }
   }
-
 
   // 转换后端原始数据为前端格式
   private convertPaperData(rawPaper: PaperRaw): Paper {

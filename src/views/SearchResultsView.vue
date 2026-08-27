@@ -791,22 +791,34 @@ const openDocumentViewer = (paper: Paper) => {
 
 // 在浏览器中预览 PDF
 const previewPDFInBrowser = async (paper: Paper) => {
+  const fallbackToPdfUrl = () => {
+    if (!paper.pdfUrl) return false
+    window.open(paper.pdfUrl, '_blank')
+    return true
+  }
+
   try {
     const pdfFileName = getPaperPdfFileName(paper)
     if (!pdfFileName) {
-      showErrorMessage('未找到 PDF 文件名')
+      if (!fallbackToPdfUrl()) {
+        showErrorMessage('未找到 PDF 文件名')
+      }
       return
     }
 
     isLoading.value = true
     await ossService.previewPDF(pdfFileName)
   } catch (error: any) {
-    console.error('预览 PDF 失败:', error)
+    console.error('预览 PDF 失败，尝试使用原始 pdfUrl:', error)
+    if (fallbackToPdfUrl()) {
+      return
+    }
+
     const errorMsg = error?.message || '预览 PDF 失败'
     if (errorMsg.includes('accessKeyId') || errorMsg.includes('accessKeySecret')) {
-      showErrorMessage('OSS 凭证获取失败，请检查后端接口配置')
+      showErrorMessage('OSS 凭证获取失败，且未找到可用的 PDF 原始链接')
     } else if (errorMsg.includes('凭证字段不完整')) {
-      showErrorMessage('OSS 凭证不完整，请检查后端返回数据')
+      showErrorMessage('OSS 凭证不完整，且未找到可用的 PDF 原始链接')
     } else {
       showErrorMessage('预览 PDF 失败，请稍后重试')
     }

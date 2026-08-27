@@ -21,6 +21,8 @@
       <h1 class="error-title">
         <span class="title-text">{{ errorTitle }}</span>
       </h1>
+      <p v-if="errorDetail" class="error-detail">{{ errorDetail }}</p>
+      <code v-if="errorEndpoint" class="error-endpoint">{{ errorEndpoint }}</code>
     </div>
   </div>
 </template>
@@ -42,6 +44,9 @@ const errorType = computed(() => {
   if (code.startsWith('5')) return 'server-error'
   return 'generic'
 })
+
+const errorEndpoint = computed(() => (route.query.endpoint as string) || '')
+const errorDetail = computed(() => (route.query.detail as string) || '')
 
 const errorTitle = computed(() => {
   switch (errorCode.value) {
@@ -259,6 +264,24 @@ const errorTitle = computed(() => {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+.error-detail {
+  max-width: 520px;
+  margin: -28px 0 0;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.error-endpoint {
+  max-width: min(680px, calc(100vw - 48px));
+  overflow-wrap: anywhere;
+  padding: 10px 14px;
+  border-radius: 10px;
+  color: #dbeafe;
+  background: rgba(15, 23, 42, 0.3);
+  font-size: 13px;
 }
 
 .title-text {

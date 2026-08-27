@@ -6,246 +6,356 @@
       <div class="shape shape-2"></div>
       <div class="shape shape-3"></div>
     </div>
-    
+
     <div class="home-container">
-      <!-- 标题 -->
-      <h1 class="main-title">科研论文收集器</h1>
-    
-    <!-- 搜索区域 -->
-    <div class="search-shell">
-      <SearchInput 
-        v-model="searchQuery"
-        :placeholder="searchInputPlaceholder"
-        @search="handleSearch"
-        @clear="handleClear"
-      />
+      <h1 v-if="!hasConversation" class="main-title">论文检索器</h1>
 
-      <div class="search-shell-divider"></div>
+      <!-- AI 对话区域 -->
+      <div class="agent-chat-shell">
+        <AgentChatPanel
+          :current-filters="{
+            yearTag: filterYear,
+            paperTags: selectedPaperTags,
+            sourceTags: selectedSources
+          }"
+          @message-sent="handleAgentMessage"
+          @restore-filters="restoreAgentFilters"
+          @conversation-changed="hasConversation = $event"
+          @completed="fetchRecentSearches"
+        >
+          <template #filters>
+            <div class="search-toolbar">
+              <div class="filter-bar">
+                <!-- 年份标签 -->
+                <span
+                  v-for="(year, index) in yearTags"
+                  :key="`year-${index}`"
+                  class="filter-tag"
+                  :class="{ 'filter-tag-active': selectedYearIndex === index }"
+                  @click="selectYearTag(index)"
+                >
+                  最近{{ year }}年
+                  <span class="tag-close" @click.stop="removeYearTag(index)">×</span>
+                </span>
 
-      <div class="search-toolbar">
-        <div class="filter-bar">
-          <!-- 年份标签 -->
-          <span
-            v-for="(year, index) in yearTags"
-            :key="`year-${index}`"
-            class="filter-tag"
-            :class="{ 'filter-tag-active': selectedYearIndex === index }"
-            @click="selectYearTag(index)"
-          >
-            最近{{ year }}年
-            <span class="tag-close" @click.stop="removeYearTag(index)">×</span>
-          </span>
-
-          <!-- 论文类型标签 -->
-          <span
-            v-for="tag in visiblePaperTags"
-            :key="tag.value"
-            class="filter-tag"
-            :class="{ 'filter-tag-active': paperTag === tag.value }"
-            @click="togglePaperTag(tag.value)"
-          >
-            {{ tag.label }}
-            <span class="tag-close" @click.stop="removePaperTag(tag.value)">×</span>
-          </span>
-
-          <!-- 添加按钮 -->
-          <div class="add-tag-wrapper" ref="addTagWrapperRef">
-            <span 
-              class="filter-tag add-btn" 
-              :class="{ 'active': showAddMenu }"
-              @click="toggleAddMenu"
-            >
-              +
-            </span>
-
-            <!-- 添加菜单 -->
-            <div v-if="showAddMenu" class="add-menu">
-              <!-- 主菜单 -->
-              <div v-if="addMenuMode === 'main'" class="menu-options">
-                <div class="menu-item" @click.stop="switchToTimeMode">
-                  <span class="icon">🕒</span> 时间标签
-                </div>
-                <div class="menu-item" @click.stop="switchToPaperMode">
-                  <span class="icon">📄</span> 论文标签
-                </div>
-              </div>
-
-              <!-- 时间输入 -->
-              <div v-else-if="addMenuMode === 'time'" class="time-input-wrapper">
-                <div class="input-row">
-                  <input
-                    ref="yearInputRef"
-                    v-model="newYearValue"
-                    class="menu-input"
-                    type="number"
-                    min="1"
-                    placeholder="最近年数"
-                    @keyup.enter="confirmAddYear"
-                  />
-                  <button class="menu-confirm-btn" @click="confirmAddYear">确定</button>
-                </div>
-              </div>
-
-              <!-- 论文标签池 -->
-              <div v-else-if="addMenuMode === 'paper'" class="paper-pool">
-                <div 
-                  v-for="tag in paperTagPool" 
+                <!-- 论文类型标签 -->
+                <span
+                  v-for="tag in visiblePaperTags"
                   :key="tag.value"
-                  class="pool-item"
-                  @click="addPaperTagToBar(tag)"
+                  class="filter-tag"
+                  :class="{ 'filter-tag-active': selectedPaperTags.includes(tag.value) }"
+                  @click="togglePaperTag(tag.value)"
                 >
                   {{ tag.label }}
+                  <span class="tag-close" @click.stop="removePaperTag(tag.value)">×</span>
+                </span>
+
+                <!-- 添加按钮 -->
+                <div class="add-tag-wrapper" ref="addTagWrapperRef">
+                  <span
+                    class="filter-tag add-btn"
+                    :class="{ active: showAddMenu }"
+                    @click="toggleAddMenu"
+                  >
+                    +
+                  </span>
+
+                  <!-- 添加菜单 -->
+                  <div v-if="showAddMenu" class="add-menu">
+                    <!-- 主菜单 -->
+                    <div v-if="addMenuMode === 'main'" class="menu-options">
+                      <div class="menu-item" @click.stop="switchToTimeMode">
+                        <span class="icon">🕒</span> 时间标签
+                      </div>
+                      <div class="menu-item" @click.stop="switchToPaperMode">
+                        <span class="icon">📄</span> 论文标签
+                      </div>
+                    </div>
+
+                    <!-- 时间输入 -->
+                    <div v-else-if="addMenuMode === 'time'" class="time-input-wrapper">
+                      <div class="input-row">
+                        <input
+                          ref="yearInputRef"
+                          v-model="newYearValue"
+                          class="menu-input"
+                          type="number"
+                          min="1"
+                          placeholder="最近年数"
+                          @keyup.enter="confirmAddYear"
+                        />                                                                                                                            
+                        <button class="menu-confirm-btn" @click="confirmAddYear">确定</button>
+                      </div>
+                    </div>
+
+                    <!-- 论文标签池 -->
+                    <div v-else-if="addMenuMode === 'paper'" class="paper-pool">
+                      <div
+                        v-for="tag in paperTagPool"
+                        :key="tag.value"
+                        class="pool-item"
+                        @click="addPaperTagToBar(tag)"
+                      >
+                        {{ tag.label }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="search-toolbar-actions">
+                <div class="source-dropdown" ref="sourceDropdownRef">
+                  <div
+                    class="source-trigger"
+                    @click="toggleSourceMenu"
+                    :style="{ minWidth: sourceSelectWidth }"
+                  >
+                    {{ sourceTriggerLabel }}
+                  </div>
+                  <transition name="fade">
+                    <div v-if="showSourceMenu" class="source-options source-options-multi">
+                      <div
+                        class="source-option source-option-multi source-option-all"
+                        :class="{ active: allSourcesSelected, partial: hasPartialSourceSelection }"
+                        @click.stop="selectAllSources"
+                      >
+                        <span>全部来源</span>
+                        <span class="source-check">{{
+                          allSourcesSelected ? '✓' : hasPartialSourceSelection ? '−' : ''
+                        }}</span>
+                      </div>
+                      <div class="source-options-divider"></div>
+                      <div
+                        v-for="opt in sourceOptions"
+                        :key="opt.value"
+                        class="source-option source-option-multi"
+                        :class="{ active: isSourceSelected(opt.value) }"
+                        @click.stop="toggleSource(opt.value)"
+                      >
+                        <span>{{ opt.label }}</span>
+                        <span class="source-check">{{
+                          isSourceSelected(opt.value) ? '✓' : ''
+                        }}</span>
+                      </div>
+                    </div>
+                  </transition>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-
-        <div class="search-toolbar-actions">
-          <div class="source-dropdown" ref="sourceDropdownRef">
-            <div
-              class="source-trigger"
-              @click="toggleSourceMenu"
-              :style="{ minWidth: sourceSelectWidth }"
-            >
-              {{ sourceTriggerLabel }}
-            </div>
-            <transition name="fade">
-              <div v-if="showSourceMenu" class="source-options source-options-multi">
-                <div
-                  v-for="opt in sourceOptions"
-                  :key="opt.value"
-                  class="source-option source-option-multi"
-                  :class="{ active: selectedSources.includes(opt.value) }"
-                  @click.stop="toggleSource(opt.value)"
-                >
-                  <span>{{ opt.label }}</span>
-                  <span class="source-check">{{ selectedSources.includes(opt.value) ? '✓' : '' }}</span>
-                </div>
-              </div>
-            </transition>
-          </div>
-          <SearchButton class="home-search-btn" @click="handleSearch" />
-        </div>
-      </div>
-    </div>
-    
-    <!-- 查询理解区域 -->
-    <div class="understanding-section" v-if="showStructuredQuery">
-      <div class="understanding-header">
-        <h3>查询理解</h3>
-      </div>
-
-      <div v-if="structuredQuery" class="understanding-card">
-        <div class="structured-grid structured-grid-plain">
-          <div class="structured-inline-field">
-            <span class="structured-inline-label">主题：</span>
-            <input v-model="structuredQuery.topic" type="text" class="structured-inline-input" />
-          </div>
-
-          <div class="structured-inline-field">
-            <span class="structured-inline-label">意图：</span>
-            <input v-model="structuredQuery.intent" type="text" class="structured-inline-input" />
-          </div>
-
-          <div class="structured-inline-field">
-            <span class="structured-inline-label">起始年份：</span>
-            <input
-              v-model="yearFromInput"
-              type="number"
-              class="structured-inline-input structured-inline-input-year"
-              placeholder="可为空"
-              :max="structuredQuery?.yearTo ?? undefined"
-              @focus="initializeYearRangeOnEdit"
-            />
-          </div>
-
-          <div class="structured-inline-field">
-            <span class="structured-inline-label">结束年份：</span>
-            <input
-              v-model="yearToInput"
-              type="number"
-              class="structured-inline-input structured-inline-input-year"
-              placeholder="可为空"
-              :min="structuredQuery?.yearFrom ?? undefined"
-              @focus="initializeYearRangeOnEdit"
-            />
-          </div>
-
-          <div class="structured-tags-row structured-field-full">
-            <span class="structured-tags-label">子领域：</span>
-            <div class="structured-tag-list structured-tag-list-plain">
-              <EditableTag
-                v-for="(item, index) in structuredQuery.subfields"
-                :key="`subfield-${index}-${item}`"
-                :keyword="item"
-                @update="updateStructuredListField('subfields', index, $event)"
-                @remove="removeStructuredListField('subfields', index)"
-              />
-              <AddKeywordButton @add="addStructuredListField('subfields', $event)" />
-            </div>
-          </div>
-
-          <div class="structured-tags-row structured-field-full">
-            <span class="structured-tags-label">关键词：</span>
-            <div class="structured-tag-list structured-tag-list-plain">
-              <EditableTag
-                v-for="(item, index) in structuredQuery.keywords"
-                :key="`keyword-${index}-${item}`"
-                :keyword="item"
-                @update="updateStructuredListField('keywords', index, $event)"
-                @remove="removeStructuredListField('keywords', index)"
-              />
-              <AddKeywordButton @add="addStructuredListField('keywords', $event)" />
-            </div>
-          </div>
-
-          <div class="structured-tags-row structured-field-full">
-            <span class="structured-tags-label">同义表达：</span>
-            <div class="structured-tag-list structured-tag-list-plain">
-              <EditableTag
-                v-for="(item, index) in structuredQuery.synonyms"
-                :key="`synonym-${index}-${item}`"
-                :keyword="item"
-                @update="updateStructuredListField('synonyms', index, $event)"
-                @remove="removeStructuredListField('synonyms', index)"
-              />
-              <AddKeywordButton @add="addStructuredListField('synonyms', $event)" />
-            </div>
-          </div>
-
-          <div class="structured-tags-row structured-field-full">
-            <span class="structured-tags-label">包含词：</span>
-            <div class="structured-tag-list structured-tag-list-plain">
-              <EditableTag
-                v-for="(item, index) in structuredQuery.includeTerms"
-                :key="`include-${index}-${item}`"
-                :keyword="item"
-                @update="updateStructuredListField('includeTerms', index, $event)"
-                @remove="removeStructuredListField('includeTerms', index)"
-              />
-              <AddKeywordButton @add="addStructuredListField('includeTerms', $event)" />
-            </div>
-          </div>
-
-          <div class="structured-tags-row structured-field-full">
-            <span class="structured-tags-label">排除词：</span>
-            <div class="structured-tag-list structured-tag-list-plain">
-              <EditableTag
-                v-for="(item, index) in structuredQuery.excludeTerms"
-                :key="`exclude-${index}-${item}`"
-                :keyword="item"
-                @update="updateStructuredListField('excludeTerms', index, $event)"
-                @remove="removeStructuredListField('excludeTerms', index)"
-              />
-              <AddKeywordButton @add="addStructuredListField('excludeTerms', $event)" />
-            </div>
-          </div>
-        </div>
+          </template>
+        </AgentChatPanel>
       </div>
     </div>
 
-    </div>
+    <button class="settings-trigger" type="button" @click="openSettingsModal">设置</button>
+
+    <button class="tasks-trigger" type="button" @click="openTasksView">检索任务列表</button>
+
+    <transition name="settings-fade">
+      <div v-if="isSettingsOpen" class="settings-overlay" @click="closeSettingsModal"></div>
+    </transition>
+
+    <transition name="settings-pop">
+      <section v-if="isSettingsOpen" class="settings-modal" @click.stop>
+        <header class="settings-header">
+          <div>
+            <p class="settings-eyebrow">Configuration</p>
+            <h2>系统设置</h2>
+          </div>
+          <button
+            class="settings-close"
+            type="button"
+            aria-label="关闭设置"
+            @click="closeSettingsModal"
+          >
+            ×
+          </button>
+        </header>
+
+        <div class="settings-tabs">
+          <button
+            class="settings-tab"
+            :class="{ active: activeSettingsTab === 'strategy' }"
+            type="button"
+            @click="activeSettingsTab = 'strategy'"
+          >
+            检索源
+          </button>
+          <button
+            class="settings-tab"
+            :class="{ active: activeSettingsTab === 'ai' }"
+            type="button"
+            @click="activeSettingsTab = 'ai'"
+          >
+            旧检索 AI 设置
+          </button>
+        </div>
+
+        <div
+          v-if="settingsMessage"
+          class="settings-message"
+          :class="`settings-message-${settingsMessageType}`"
+        >
+          {{ settingsMessage }}
+        </div>
+
+        <div class="settings-body">
+          <div v-if="activeSettingsTab === 'strategy'" class="settings-panel">
+            <div class="settings-panel-title">
+              <h3>检索源策略</h3>
+              <button
+                class="settings-secondary-btn"
+                type="button"
+                :disabled="isStrategyLoading"
+                @click="loadStrategyConfig"
+              >
+                刷新
+              </button>
+            </div>
+
+            <div v-if="isStrategyLoading" class="settings-loading">正在加载检索源配置...</div>
+            <div v-else-if="!strategyConfigs.length" class="settings-empty">暂无检索源配置</div>
+            <div v-else class="strategy-table-wrapper">
+              <table class="strategy-table">
+                <thead>
+                  <tr>
+                    <th>来源</th>
+                    <th>名称</th>
+                    <th>总数量</th>
+                    <th>启用</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="config in strategyConfigs" :key="config.source">
+                    <td class="strategy-source">{{ config.source }}</td>
+                    <td class="strategy-name">{{ config.name }}</td>
+                    <td>
+                      <input
+                        v-model.number="config.totalCount"
+                        class="settings-input small"
+                        type="number"
+                        min="1"
+                        max="2000"
+                      />
+                    </td>
+                    <td>
+                      <label class="settings-switch">
+                        <input v-model="config.enabled" type="checkbox" />
+                        <span></span>
+                      </label>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="settings-actions">
+              <button
+                class="settings-primary-btn"
+                type="button"
+                :disabled="isStrategySaving"
+                @click="saveStrategyConfig"
+              >
+                {{ isStrategySaving ? '保存中...' : '整体保存' }}
+              </button>
+            </div>
+          </div>
+
+          <div v-else class="settings-panel">
+            <div class="settings-panel-title">
+              <h3>旧检索 AI 配置</h3>
+              <button
+                class="settings-secondary-btn"
+                type="button"
+                :disabled="isAiLoading"
+                @click="loadAiConfig"
+              >
+                刷新
+              </button>
+            </div>
+
+            <div v-if="isAiLoading" class="settings-loading">正在加载 AI 配置...</div>
+            <div v-else class="ai-settings-grid">
+              <label class="settings-field">
+                <span>Provider</span>
+                <select v-model="aiConfig.provider" class="settings-input">
+                  <option value="DASHSCOPE">DASHSCOPE</option>
+                  <option value="OPENAI_COMPATIBLE">OPENAI_COMPATIBLE</option>
+                </select>
+              </label>
+              <label class="settings-field">
+                <span>Base URL</span>
+                <input
+                  v-model="aiConfig.baseUrl"
+                  class="settings-input"
+                  type="text"
+                  placeholder="https://api.deepseek.com"
+                />
+              </label>
+              <label class="settings-field">
+                <span>模型</span>
+                <input
+                  v-model="aiConfig.model"
+                  class="settings-input"
+                  type="text"
+                  placeholder="deepseek-chat"
+                />
+              </label>
+              <label class="settings-field settings-field-full">
+                <span>API Key</span>
+                <input
+                  v-model="aiApiKeyInput"
+                  class="settings-input"
+                  type="password"
+                  placeholder="sk-xxxx"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="settings-field">
+                <span>Temperature</span>
+                <input
+                  v-model.number="aiConfig.temperature"
+                  class="settings-input"
+                  type="number"
+                  min="0"
+                  max="2"
+                  step="0.1"
+                />
+              </label>
+              <label class="settings-field">
+                <span>Max Tokens</span>
+                <input
+                  v-model.number="aiConfig.maxTokens"
+                  class="settings-input"
+                  type="number"
+                  min="1"
+                />
+              </label>
+              <label class="settings-field">
+                <span>Timeout(ms)</span>
+                <input
+                  v-model.number="aiConfig.timeoutMs"
+                  class="settings-input"
+                  type="number"
+                  min="1000"
+                />
+              </label>
+            </div>
+
+            <div class="settings-actions">
+              <button
+                class="settings-primary-btn"
+                type="button"
+                :disabled="isAiSaving"
+                @click="saveAiConfig"
+              >
+                {{ isAiSaving ? '保存中...' : '保存 AI 设置' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </transition>
 
     <button
       v-if="hasSearchHistory && !isRecentDrawerOpen"
@@ -253,15 +363,11 @@
       type="button"
       @click="openRecentDrawer"
     >
-      最近搜索
+      最近任务
     </button>
 
     <transition name="drawer-fade">
-      <div
-        v-if="isRecentDrawerOpen"
-        class="recent-drawer-overlay"
-        @click="closeRecentDrawer"
-      ></div>
+      <div v-if="isRecentDrawerOpen" class="recent-drawer-overlay" @click="closeRecentDrawer"></div>
     </transition>
 
     <transition name="drawer-slide">
@@ -280,7 +386,7 @@
         <div class="recent-drawer-header">
           <div>
             <p class="recent-drawer-eyebrow">History</p>
-            <h3>最近搜索</h3>
+            <h3>历史检索任务</h3>
             <p class="recent-drawer-summary">共 {{ totalRecords }} 条历史记录</p>
           </div>
           <button
@@ -310,7 +416,10 @@
               <span class="recent-search-time">{{ search.searchTime }}</span>
             </button>
           </div>
-          <div v-if="!isRecentSearchesLoading && !recentSearches.length" class="recent-search-empty-state">
+          <div
+            v-if="!isRecentSearchesLoading && !recentSearches.length"
+            class="recent-search-empty-state"
+          >
             暂无最近搜索记录
           </div>
         </div>
@@ -322,14 +431,14 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import SearchInput from '@/components/SearchInput.vue'
-import SearchButton from '@/components/SearchButton.vue'
-import EditableTag from '@/components/EditableTag.vue'
-import AddKeywordButton from '@/components/AddKeywordButton.vue'
-import { apiService, type QueryUnderstanding } from '@/services/api'
+import AgentChatPanel from '@/components/AgentChatPanel.vue'
 import {
-  buildSubmitPaperTags,
-  buildSubmitSourceTags,
+  apiService,
+  type AiConfig,
+  type QueryUnderstanding,
+  type SearchStrategyConfig
+} from '@/services/api'
+import {
   DEFAULT_VISIBLE_PAPER_TAGS,
   PAPER_TAG_POOL,
   SOURCE_OPTIONS,
@@ -337,10 +446,158 @@ import {
   type PaperTagValue,
   type SourceTag
 } from '@/constants/searchTagMappings'
-import { isTimeoutError } from '@/utils/fetchWithTimeout'
 
 // 路由
 const router = useRouter()
+
+// 设置弹窗状态
+const hasConversation = ref(false)
+
+const isSettingsOpen = ref(false)
+const activeSettingsTab = ref<'strategy' | 'ai'>('strategy')
+const strategyConfigs = ref<SearchStrategyConfig[]>([])
+const isStrategyLoading = ref(false)
+const isStrategySaving = ref(false)
+const isAiLoading = ref(false)
+const isAiSaving = ref(false)
+const settingsMessage = ref('')
+const settingsMessageType = ref<'success' | 'error'>('success')
+const aiConfig = ref<AiConfig>({
+  provider: 'DASHSCOPE',
+  baseUrl: '',
+  model: '',
+  apiKey: '',
+  temperature: 0.3,
+  maxTokens: 2048,
+  timeoutMs: 60000
+})
+
+const aiApiKeyInput = computed({
+  get: () => aiConfig.value.apiKey,
+  set: (value: string) => {
+    aiConfig.value.apiKey = value
+  }
+})
+
+const showSettingsMessage = (message: string, type: 'success' | 'error' = 'success') => {
+  settingsMessage.value = message
+  settingsMessageType.value = type
+}
+
+const normalizeStrategyTotalCount = (value: number) => {
+  const numericValue = Number(value)
+  if (!Number.isFinite(numericValue)) return 1
+  return Math.min(2000, Math.max(1, Math.trunc(numericValue)))
+}
+
+const normalizeStrategyConfig = (item: SearchStrategyConfig): SearchStrategyConfig => ({
+  source: item.source,
+  name: item.name,
+  totalCount: normalizeStrategyTotalCount(item.totalCount),
+  enabled: item.enabled
+})
+
+const normalizeAiConfig = (config: Partial<AiConfig>): AiConfig => ({
+  provider: config.provider ?? 'DASHSCOPE',
+  baseUrl: config.baseUrl ?? '',
+  model: config.model ?? '',
+  apiKey: config.apiKey ?? '',
+  temperature: config.temperature ?? 0.3,
+  maxTokens: config.maxTokens ?? 2048,
+  timeoutMs: config.timeoutMs ?? 60000
+})
+
+const loadStrategyConfig = async () => {
+  try {
+    isStrategyLoading.value = true
+    const response = await apiService.getSearchStrategyConfig()
+    if (response.code === 0 && response.success) {
+      strategyConfigs.value = response.data.map((item) => normalizeStrategyConfig(item))
+    } else {
+      showSettingsMessage(response.message || '检索源配置加载失败', 'error')
+    }
+  } catch (error) {
+    console.error('加载检索源配置失败:', error)
+    showSettingsMessage('检索源配置加载失败', 'error')
+  } finally {
+    isStrategyLoading.value = false
+  }
+}
+
+const loadAiConfig = async () => {
+  try {
+    isAiLoading.value = true
+    const response = await apiService.getAiConfig()
+    if (response.code === 0 && response.data) {
+      aiConfig.value = normalizeAiConfig(response.data)
+    } else {
+      showSettingsMessage(response.message || 'AI 配置加载失败', 'error')
+    }
+  } catch (error) {
+    console.error('加载 AI 配置失败:', error)
+    showSettingsMessage('AI 配置加载失败', 'error')
+  } finally {
+    isAiLoading.value = false
+  }
+}
+
+const openTasksView = () => {
+  router.push({ name: 'tasks' })
+}
+
+const openSettingsModal = async () => {
+  isSettingsOpen.value = true
+  settingsMessage.value = ''
+
+  if (!strategyConfigs.value.length) {
+    await loadStrategyConfig()
+  }
+  if (!aiConfig.value.baseUrl && !aiConfig.value.model) {
+    await loadAiConfig()
+  }
+}
+
+const closeSettingsModal = () => {
+  isSettingsOpen.value = false
+}
+
+const saveStrategyConfig = async () => {
+  try {
+    isStrategySaving.value = true
+    settingsMessage.value = ''
+    const response = await apiService.saveSearchStrategyConfig(
+      strategyConfigs.value.map((item) => normalizeStrategyConfig(item))
+    )
+    if (response.code === 0 && response.data === true) {
+      showSettingsMessage('检索源配置保存成功')
+    } else {
+      showSettingsMessage(response.message || '检索源配置保存失败', 'error')
+    }
+  } catch (error) {
+    console.error('保存检索源配置失败:', error)
+    showSettingsMessage('检索源配置保存失败', 'error')
+  } finally {
+    isStrategySaving.value = false
+  }
+}
+
+const saveAiConfig = async () => {
+  try {
+    isAiSaving.value = true
+    settingsMessage.value = ''
+    const response = await apiService.saveAiConfig(normalizeAiConfig(aiConfig.value))
+    if (response.code === 0 && response.data === true) {
+      showSettingsMessage('AI 配置保存成功')
+    } else {
+      showSettingsMessage(response.message || 'AI 配置保存失败', 'error')
+    }
+  } catch (error) {
+    console.error('保存 AI 配置失败:', error)
+    showSettingsMessage('AI 配置保存失败', 'error')
+  } finally {
+    isAiSaving.value = false
+  }
+}
 
 // 最近搜索状态
 interface RecentSearchListItem {
@@ -393,10 +650,13 @@ const fetchRecentSearches = async () => {
     let total = 0
 
     while (pageNumber <= totalPages) {
-      const response = await apiService.getSearchHistoryWithPagination(pageNumber, recentSearchPageSize)
+      const response = await apiService.getSearchHistoryWithPagination(
+        pageNumber,
+        recentSearchPageSize
+      )
 
       mergedRecentSearches.push(
-        ...response.data.list.map(item => ({
+        ...response.data.list.map((item) => ({
           id: item.id,
           prompt: item.searchPrompt,
           searchTime: item.searchTime
@@ -453,11 +713,6 @@ const handleViewportResize = () => {
 
 // 搜索相关状态
 const searchQuery = ref('')
-const searchInputPlaceholder = ref('搜索论文相关词...')
-const searchInputBackupValue = ref('')
-let searchPromptTipTimer: ReturnType<typeof setTimeout> | null = null
-
-// 年份过滤标签池：N 表示近 N 年，默认不选择（yearTag=0）
 const DEFAULT_EDIT_YEAR = 2026
 const yearTags = ref<number[]>([3, 5])
 const selectedYearIndex = ref<number | null>(null)
@@ -561,19 +816,19 @@ const paperTagPool: PaperTagItem[] = PAPER_TAG_POOL
 
 const visiblePaperTags = ref<PaperTagItem[]>([...DEFAULT_VISIBLE_PAPER_TAGS])
 
-const paperTag = ref<PaperTagValue | ''>('')
+const selectedPaperTags = ref<PaperTagValue[]>([])
 
 const togglePaperTag = (tagValue: PaperTagValue) => {
-  paperTag.value = paperTag.value === tagValue ? '' : tagValue
+  selectedPaperTags.value = selectedPaperTags.value.includes(tagValue)
+    ? selectedPaperTags.value.filter((value) => value !== tagValue)
+    : [...selectedPaperTags.value, tagValue]
 }
 
 const removePaperTag = (tagValue: PaperTagValue) => {
-  const index = visiblePaperTags.value.findIndex(t => t.value === tagValue)
+  const index = visiblePaperTags.value.findIndex((t) => t.value === tagValue)
   if (index !== -1) {
     visiblePaperTags.value.splice(index, 1)
-    if (paperTag.value === tagValue) {
-      paperTag.value = ''
-    }
+    selectedPaperTags.value = selectedPaperTags.value.filter((value) => value !== tagValue)
   }
 }
 
@@ -620,11 +875,11 @@ const confirmAddYear = () => {
 }
 
 const addPaperTagToBar = (tag: PaperTagItem) => {
-  if (!visiblePaperTags.value.find(t => t.value === tag.value)) {
+  if (!visiblePaperTags.value.find((t) => t.value === tag.value)) {
     visiblePaperTags.value.push(tag)
   }
   // 选中该标签
-  paperTag.value = tag.value
+  selectedPaperTags.value = [tag.value]
   showAddMenu.value = false
 }
 
@@ -648,10 +903,50 @@ const sourceTriggerLabel = computed(() => {
   }
 
   return sourceOptions
-    .filter(opt => selectedSources.value.includes(opt.value))
-    .map(opt => opt.label)
+    .filter((opt) => selectedSources.value.includes(opt.value))
+    .map((opt) => opt.label)
     .join(', ')
 })
+
+const allSourcesSelected = computed(
+  () => selectedSources.value.length === 0 || selectedSources.value.length === sourceOptions.length
+)
+const hasPartialSourceSelection = computed(
+  () => selectedSources.value.length > 0 && selectedSources.value.length < sourceOptions.length
+)
+
+const handleAgentMessage = (message: string) => {
+  searchQuery.value = message
+}
+
+const restoreAgentFilters = (filters: {
+  yearTag: number
+  paperTags: PaperTagValue[]
+  sourceTags: SourceTag[]
+}) => {
+  if (filters.yearTag > 0) {
+    if (!yearTags.value.includes(filters.yearTag)) {
+      yearTags.value.push(filters.yearTag)
+      yearTags.value.sort((left, right) => left - right)
+    }
+    selectedYearIndex.value = yearTags.value.indexOf(filters.yearTag)
+    filterYear.value = filters.yearTag
+    syncStructuredQueryYearRange(filters.yearTag)
+  } else {
+    selectedYearIndex.value = null
+    filterYear.value = 0
+    syncStructuredQueryYearRange(0)
+  }
+
+  filters.paperTags.forEach((tagValue) => {
+    const tag = paperTagPool.find((item) => item.value === tagValue)
+    if (tag && !visiblePaperTags.value.some((item) => item.value === tagValue)) {
+      visiblePaperTags.value.push(tag)
+    }
+  })
+  selectedPaperTags.value = [...filters.paperTags]
+  selectedSources.value = [...filters.sourceTags]
+}
 
 // source 下拉逻辑
 const showSourceMenu = ref(false)
@@ -662,12 +957,22 @@ const toggleSourceMenu = () => {
   showSourceMenu.value = !showSourceMenu.value
 }
 
+const isSourceSelected = (value: SourceTag) => selectedSources.value.includes(value)
+
+const selectAllSources = () => {
+  selectedSources.value = []
+}
+
 const toggleSource = (value: SourceTag) => {
-  if (selectedSources.value.includes(value)) {
-    selectedSources.value = selectedSources.value.filter(item => item !== value)
-  } else {
-    selectedSources.value = [...selectedSources.value, value]
-  }
+  const currentSources =
+    selectedSources.value.length === 0
+      ? sourceOptions.map((option) => option.value)
+      : selectedSources.value
+  const nextSources = currentSources.includes(value)
+    ? currentSources.filter((item) => item !== value)
+    : [...currentSources, value]
+
+  selectedSources.value = nextSources.length === sourceOptions.length ? [] : nextSources
 }
 
 const updateSourceSelectWidth = () => {
@@ -692,9 +997,13 @@ const updateSourceSelectWidth = () => {
   sourceSelectWidth.value = `${Math.ceil(width + extraPadding)}px`
 }
 
-watch(selectedSources, () => {
-  updateSourceSelectWidth()
-}, { deep: true })
+watch(
+  selectedSources,
+  () => {
+    updateSourceSelectWidth()
+  },
+  { deep: true }
+)
 
 onMounted(() => {
   document.addEventListener('click', handleClickOutside)
@@ -718,271 +1027,67 @@ onUnmounted(() => {
   if (extractTimer) {
     clearTimeout(extractTimer)
   }
-  if (searchPromptTipTimer) {
-    clearTimeout(searchPromptTipTimer)
-  }
 })
 
 // 查询理解相关状态
 const structuredQuery = ref<QueryUnderstanding | null>(null)
-const isUnderstandingQuery = ref(false)
-const queryMatched = ref(false)
-const queryClassification = ref('')
-const queryReason = ref('')
-const consistencyValid = ref(false)
-const understandingCache = new Map<string, {
-  classification: string
-  reason: string
-  consistencyValid: boolean
-  matched: boolean
-  structuredQuery: QueryUnderstanding | null
-}>()
 let latestUnderstandRequestId = 0
 
-const showStructuredQuery = computed(() => queryMatched.value)
-
-const queryClassificationLabel = computed(() => {
-  const classificationMap: Record<string, string> = {
-    PAPER_SEARCH: '论文检索',
-    GENERAL_SEARCH: '通用检索',
-    UNKNOWN: '未分类'
-  }
-
-  return classificationMap[queryClassification.value] || queryClassification.value || '论文检索'
-})
-
-type StructuredListField = 'subfields' | 'keywords' | 'synonyms' | 'includeTerms' | 'excludeTerms'
-
-const parseOptionalNumber = (value: string) => {
-  const trimmed = value.trim()
-  if (!trimmed) return null
-  const num = Number(trimmed)
-  return Number.isNaN(num) ? null : num
-}
-
-const cloneStructuredQuery = (query: QueryUnderstanding): QueryUnderstanding => ({
-  ...query,
-  subfields: [...query.subfields],
-  keywords: [...query.keywords],
-  synonyms: [...query.synonyms],
-  includeTerms: [...query.includeTerms],
-  excludeTerms: [...query.excludeTerms]
-})
-
-const addStructuredListField = (field: StructuredListField, value: string) => {
+const syncStructuredQueryYearRangeOnly = (recentYears: number) => {
   if (!structuredQuery.value) return
 
-  const trimmedValue = value.trim()
-  if (!trimmedValue) return
-
-  structuredQuery.value[field].push(trimmedValue)
-}
-
-const updateStructuredListField = (field: StructuredListField, index: number, value: string) => {
-  if (!structuredQuery.value) return
-
-  const trimmedValue = value.trim()
-  if (!trimmedValue) return
-
-  structuredQuery.value[field][index] = trimmedValue
-}
-
-const removeStructuredListField = (field: StructuredListField, index: number) => {
-  if (!structuredQuery.value) return
-
-  structuredQuery.value[field].splice(index, 1)
-}
-
-const yearFromInput = computed({
-  get: () => structuredQuery.value?.yearFrom?.toString() || '',
-  set: (value: string) => {
-    if (!structuredQuery.value) return
-
-    const parsedValue = parseOptionalNumber(value)
-    if (parsedValue == null) {
-      structuredQuery.value.yearFrom = null
-      syncToolbarTagFromStructuredYears()
-      return
-    }
-
-    if (structuredQuery.value.yearTo == null) {
-      structuredQuery.value.yearTo = getCurrentYear()
-    }
-
-    const maxAllowedYear = structuredQuery.value.yearTo ?? parsedValue
-    structuredQuery.value.yearFrom = Math.min(parsedValue, maxAllowedYear)
-    syncToolbarTagFromStructuredYears()
+  if (!recentYears || recentYears <= 0) {
+    structuredQuery.value.yearFrom = null
+    structuredQuery.value.yearTo = null
+    return
   }
-})
 
-const yearToInput = computed({
-  get: () => structuredQuery.value?.yearTo?.toString() || '',
-  set: (value: string) => {
-    if (!structuredQuery.value) return
-
-    const parsedValue = parseOptionalNumber(value)
-    if (parsedValue == null) {
-      structuredQuery.value.yearTo = null
-      syncToolbarTagFromStructuredYears()
-      return
-    }
-
-    if (structuredQuery.value.yearFrom == null) {
-      structuredQuery.value.yearFrom = getCurrentYear()
-    }
-
-    const minAllowedYear = structuredQuery.value.yearFrom ?? parsedValue
-    structuredQuery.value.yearTo = Math.max(parsedValue, minAllowedYear)
-    syncToolbarTagFromStructuredYears()
-  }
-})
-
-watch(
-  () => [structuredQuery.value?.yearFrom ?? null, structuredQuery.value?.yearTo ?? null],
-  () => {
-    syncToolbarTagFromStructuredYears()
-  }
-)
+  const currentYear = getCurrentYear()
+  structuredQuery.value.yearFrom = currentYear - recentYears + 1
+  structuredQuery.value.yearTo = currentYear
+}
 
 // 计算属性：是否有搜索历史
 const hasSearchHistory = computed(() => {
   return recentSearches.value.length > 0
 })
 
-// 查询理解（增加缓存和超时处理）
-const understandQuery = async (query: string) => {
-  if (!query.trim()) return
-
+const understandQuery = (query: string) => {
   const trimmedQuery = query.trim()
-
-  if (understandingCache.has(trimmedQuery)) {
-    const cached = understandingCache.get(trimmedQuery)
-    if (cached) {
-      queryClassification.value = cached.classification
-      queryReason.value = cached.reason
-      consistencyValid.value = cached.consistencyValid
-      queryMatched.value = cached.matched
-      structuredQuery.value = cached.matched
-        ? cloneStructuredQuery(cached.structuredQuery ?? buildDefaultStructuredQuery())
-        : null
-
-      if (filterYear.value > 0) {
-        syncStructuredQueryYearRange(filterYear.value)
-      } else {
-        syncToolbarTagFromStructuredYears()
-      }
-    }
+  if (!trimmedQuery) {
+    structuredQuery.value = null
     return
   }
 
-  const requestId = ++latestUnderstandRequestId
-  isUnderstandingQuery.value = true
-
-  try {
-    const result = await apiService.queryUnderstanding(trimmedQuery)
-
-    if (requestId !== latestUnderstandRequestId || trimmedQuery !== searchQuery.value.trim()) {
-      return
-    }
-
-    queryClassification.value = result.data.classification || ''
-    queryReason.value = result.data.reason || ''
-    consistencyValid.value = result.data.consistencyValid
-    queryMatched.value = result.data.matched
-
-    if (result.data.matched && result.data.structuredQuery) {
-      structuredQuery.value = cloneStructuredQuery(result.data.structuredQuery)
-
-      if (filterYear.value > 0) {
-        syncStructuredQueryYearRange(filterYear.value)
-      } else {
-        syncToolbarTagFromStructuredYears()
-      }
-      understandingCache.set(trimmedQuery, {
-        classification: result.data.classification || '',
-        reason: result.data.reason || '',
-        consistencyValid: result.data.consistencyValid,
-        matched: true,
-        structuredQuery: cloneStructuredQuery(structuredQuery.value)
-      })
-    } else if (result.data.matched) {
-      structuredQuery.value = buildDefaultStructuredQuery()
-
-      if (filterYear.value > 0) {
-        syncStructuredQueryYearRange(filterYear.value)
-      } else {
-        syncToolbarTagFromStructuredYears()
-      }
-      understandingCache.set(trimmedQuery, {
-        classification: result.data.classification || '',
-        reason: result.data.reason || '',
-        consistencyValid: result.data.consistencyValid,
-        matched: true,
-        structuredQuery: cloneStructuredQuery(structuredQuery.value)
-      })
-    } else {
-      structuredQuery.value = null
-      updateYearTagSelectionOnly(0)
-      understandingCache.set(trimmedQuery, {
-        classification: result.data.classification || '',
-        reason: result.data.reason || '',
-        consistencyValid: result.data.consistencyValid,
-        matched: false,
-        structuredQuery: null
-      })
-    }
-  } catch (error) {
-    if (requestId !== latestUnderstandRequestId) {
-      return
-    }
-
-    if (!isTimeoutError(error)) {
-      console.error('Failed to understand query:', error)
-    }
-    structuredQuery.value = null
-    updateYearTagSelectionOnly(0)
-    queryMatched.value = false
-    queryClassification.value = ''
-    queryReason.value = ''
-    consistencyValid.value = false
-  } finally {
-    if (requestId !== latestUnderstandRequestId) {
-      return
-    }
-    isUnderstandingQuery.value = false
-  }
+  structuredQuery.value = buildDefaultStructuredQuery(trimmedQuery)
+  syncStructuredQueryYearRangeOnly(filterYear.value)
 }
 
-// 监听搜索框变化，自动进行查询理解
-let extractTimer: NodeJS.Timeout
+// 监听对话输入，自动生成供 Agent 确认恢复使用的查询理解上下文
+let extractTimer: ReturnType<typeof setTimeout>
 watch(searchQuery, (newQuery) => {
-  if (searchPromptTipTimer) {
-    return
-  }
-
   if (extractTimer) {
     clearTimeout(extractTimer)
   }
 
   if (!newQuery.trim()) {
     latestUnderstandRequestId += 1
-    isUnderstandingQuery.value = false
     structuredQuery.value = null
-    updateYearTagSelectionOnly(0)
-    queryMatched.value = false
-    queryClassification.value = ''
-    queryReason.value = ''
-    consistencyValid.value = false
     return
   }
 
+  const requestId = ++latestUnderstandRequestId
   extractTimer = setTimeout(() => {
-    understandQuery(newQuery)
-  }, 600)
+    if (requestId === latestUnderstandRequestId) {
+      understandQuery(newQuery)
+    }
+  }, 300)
 })
 
-const buildDefaultStructuredQuery = (): QueryUnderstanding => ({
-  topic: searchQuery.value.trim(),
+const buildDefaultStructuredQuery = (
+  topic: string = searchQuery.value.trim()
+): QueryUnderstanding => ({
+  topic,
   subfields: [],
   intent: 'mixed',
   yearFrom: null,
@@ -995,88 +1100,9 @@ const buildDefaultStructuredQuery = (): QueryUnderstanding => ({
   reasoning: ''
 })
 
-const showSearchPromptTip = () => {
-  if (searchPromptTipTimer) {
-    clearTimeout(searchPromptTipTimer)
-  }
-
-  if (extractTimer) {
-    clearTimeout(extractTimer)
-  }
-
-  searchInputBackupValue.value = searchQuery.value
-  searchQuery.value = ''
-  searchInputPlaceholder.value = '请输入论文检索prompt'
-
-  searchPromptTipTimer = setTimeout(() => {
-    searchQuery.value = searchInputBackupValue.value
-    searchInputPlaceholder.value = '搜索论文相关词...'
-    searchPromptTipTimer = null
-  }, 1600)
-}
-
 const resetStructuredQuery = () => {
   structuredQuery.value = null
-  queryMatched.value = false
-  queryClassification.value = ''
-  queryReason.value = ''
-  consistencyValid.value = false
   updateYearTagSelectionOnly(0)
-}
-
-// 搜索处理
-const handleSearch = async () => {
-  if (!searchQuery.value.trim()) return
-
-  if (!queryMatched.value || !structuredQuery.value) {
-    showSearchPromptTip()
-    return
-  }
-  
-  try {
-    const response = await apiService.submitSearch({
-      prompt: searchQuery.value.trim(),
-      searchTag: {
-        yearTag: filterYear.value,
-        paperTag: buildSubmitPaperTags(paperTag.value),
-        sourceTag: buildSubmitSourceTags(selectedSources.value)
-      },
-      promptUnderstanding: {
-        ...structuredQuery.value,
-        subfields: [...structuredQuery.value.subfields],
-        keywords: [...structuredQuery.value.keywords],
-        synonyms: [...structuredQuery.value.synonyms],
-        includeTerms: [...structuredQuery.value.includeTerms],
-        excludeTerms: [...structuredQuery.value.excludeTerms]
-      }
-    })
-    
-    if (response.code === 0 && response.success) {
-      router.push({
-        name: 'tasks',
-        query: { taskId: response.data.toString() }
-      })
-      
-      await fetchRecentSearches()
-    } else {
-      console.error('搜索任务创建失败:', response.message)
-    }
-  } catch (error) {
-    console.error('搜索失败:', error)
-  }
-}
-
-// 清空搜索
-const handleClear = () => {
-  searchQuery.value = ''
-  searchInputBackupValue.value = ''
-  searchInputPlaceholder.value = '搜索论文相关词...'
-  if (searchPromptTipTimer) {
-    clearTimeout(searchPromptTipTimer)
-    searchPromptTipTimer = null
-  }
-  selectedHistoryId.value = null
-  resetStructuredQuery()
 }
 
 // 最近搜索点击处理 - 直接跳转到SearchResult页面
@@ -1117,6 +1143,356 @@ onUnmounted(() => {
   align-items: center;
   transform: translateZ(0);
   backface-visibility: hidden;
+}
+
+.settings-trigger,
+.tasks-trigger {
+  position: fixed;
+  top: 24px;
+  z-index: 30;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 999px;
+  padding: 10px 18px;
+  color: #4f5f82;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 14px 34px rgba(101, 119, 187, 0.18);
+  backdrop-filter: blur(16px);
+  transition: all 0.2s ease;
+}
+
+.settings-trigger {
+  right: 28px;
+}
+
+.tasks-trigger {
+  right: 110px;
+}
+
+.settings-trigger:hover,
+.tasks-trigger:hover {
+  color: #1890ff;
+  transform: translateY(-1px);
+  box-shadow: 0 18px 42px rgba(101, 119, 187, 0.24);
+}
+
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(15, 23, 42, 0.32);
+  backdrop-filter: blur(4px);
+}
+
+.settings-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 90;
+  width: min(980px, calc(100vw - 36px));
+  max-height: min(760px, calc(100vh - 36px));
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 30px 90px rgba(15, 23, 42, 0.28);
+  backdrop-filter: blur(20px);
+}
+
+.settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 24px 28px 18px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.settings-eyebrow {
+  margin: 0 0 5px;
+  color: #8b95aa;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.settings-header h2 {
+  margin: 0;
+  color: #1f2937;
+  font-size: 26px;
+  line-height: 1.2;
+}
+
+.settings-close {
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(241, 245, 249, 0.86);
+  color: #64748b;
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.settings-close:hover {
+  background: #e2e8f0;
+  color: #ef4444;
+}
+
+.settings-tabs {
+  display: flex;
+  gap: 10px;
+  padding: 16px 28px 0;
+}
+
+.settings-tab {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 999px;
+  padding: 9px 18px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #64748b;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.settings-tab.active,
+.settings-tab:hover {
+  border-color: #1890ff;
+  background: #1890ff;
+  color: #ffffff;
+}
+
+.settings-message {
+  margin: 14px 28px 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  text-align: left;
+}
+
+.settings-message-success {
+  color: #047857;
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.settings-message-error {
+  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.settings-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 28px 28px;
+}
+
+.settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.settings-panel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-panel-title h3 {
+  margin: 0;
+  color: #334155;
+  font-size: 18px;
+}
+
+.settings-secondary-btn,
+.settings-primary-btn {
+  border: none;
+  border-radius: 999px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.settings-secondary-btn {
+  padding: 8px 14px;
+  color: #475569;
+  background: rgba(226, 232, 240, 0.78);
+}
+
+.settings-primary-btn {
+  padding: 11px 22px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #667eea 0%, #1890ff 100%);
+  box-shadow: 0 12px 28px rgba(24, 144, 255, 0.24);
+}
+
+.settings-secondary-btn:disabled,
+.settings-primary-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.settings-loading,
+.settings-empty {
+  padding: 42px 20px;
+  border-radius: 18px;
+  color: #64748b;
+  background: rgba(248, 250, 252, 0.82);
+  text-align: center;
+}
+
+.strategy-table-wrapper {
+  overflow: auto;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.strategy-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 820px;
+}
+
+.strategy-table th,
+.strategy-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+  color: #334155;
+  font-size: 13px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.strategy-table th {
+  color: #64748b;
+  font-weight: 800;
+  background: rgba(248, 250, 252, 0.86);
+}
+
+.strategy-table tr:last-child td {
+  border-bottom: none;
+}
+
+.strategy-source,
+.strategy-name {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.settings-input {
+  width: 100%;
+  height: 38px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 10px;
+  padding: 0 12px;
+  color: #1f2937;
+  background: rgba(255, 255, 255, 0.92);
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.settings-input.small {
+  width: 96px;
+}
+
+.settings-input:focus {
+  border-color: #1890ff;
+  box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.1);
+}
+
+.settings-switch {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.settings-switch input {
+  display: none;
+}
+
+.settings-switch span {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  transition: all 0.2s ease;
+}
+
+.settings-switch span::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.2);
+  transition: all 0.2s ease;
+}
+
+.settings-switch input:checked + span {
+  background: #1890ff;
+}
+
+.settings-switch input:checked + span::after {
+  transform: translateX(18px);
+}
+
+.ai-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 800;
+  text-align: left;
+}
+
+.settings-field-full {
+  grid-column: 1 / -1;
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.settings-fade-enter-active,
+.settings-fade-leave-active,
+.settings-pop-enter-active,
+.settings-pop-leave-active {
+  transition: all 0.2s ease;
+}
+
+.settings-fade-enter-from,
+.settings-fade-leave-to {
+  opacity: 0;
+}
+
+.settings-pop-enter-from,
+.settings-pop-leave-to {
+  opacity: 0;
+  transform: translate(-50%, -48%) scale(0.98);
 }
 
 /* 动态背景形状 */
@@ -1171,7 +1547,8 @@ onUnmounted(() => {
 }
 
 @keyframes float {
-  0%, 100% {
+  0%,
+  100% {
     transform: translate3d(0, 0, 0) scale(1);
   }
   33% {
@@ -1197,41 +1574,31 @@ onUnmounted(() => {
 }
 
 .main-title {
-  font-size: 58px;
+  font-size: 62px;
   font-weight: 700;
   line-height: 1.15;
+  text-align: center;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  margin: 0 0 28px 0;
-  letter-spacing: 8px;
+  margin: 4px 0 8px;
+  letter-spacing: 6px;
 }
 
-
-.search-shell {
+.agent-chat-shell {
   display: flex;
   flex-direction: column;
   gap: 12px;
   width: min(860px, calc(100vw - 72px));
-  padding: 18px 18px 16px;
+  margin: 0 auto;
+  align-self: center;
+  padding: 22px 20px 18px;
   border-radius: 28px;
-  background: rgba(255, 255, 255, 0.74);
-  border: 1px solid rgba(255, 255, 255, 0.68);
+  background: rgba(255, 255, 255, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.56);
   box-shadow: 0 20px 44px rgba(101, 119, 187, 0.14);
   backdrop-filter: blur(18px);
-}
-
-.search-shell-divider {
-  width: 100%;
-  height: 1px;
-  background: linear-gradient(90deg, rgba(148, 163, 184, 0), rgba(148, 163, 184, 0.22), rgba(148, 163, 184, 0));
-}
-
-.search-section {
-  display: flex;
-  justify-content: center;
-  width: 100%;
 }
 
 .search-toolbar {
@@ -1253,11 +1620,6 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-  flex-shrink: 0;
-}
-
-.home-search-btn {
-  margin-top: 0;
   flex-shrink: 0;
 }
 
@@ -1370,8 +1732,6 @@ onUnmounted(() => {
   padding: 6px;
 }
 
-
-
 .input-row {
   display: flex;
   gap: 8px;
@@ -1423,6 +1783,29 @@ onUnmounted(() => {
   color: #1890ff;
 }
 
+.search-agent-mode-button {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid rgba(102, 126, 234, 0.3);
+  border-radius: 999px;
+  color: #53617d;
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.search-agent-mode-button:hover,
+.search-agent-mode-button.active {
+  border-color: rgba(102, 126, 234, 0.58);
+  color: #465dc4;
+  background: rgba(232, 237, 255, 0.86);
+  box-shadow: 0 5px 13px rgba(102, 126, 234, 0.12);
+}
+
 .source-dropdown {
   position: relative;
   height: 100%;
@@ -1443,23 +1826,34 @@ onUnmounted(() => {
   font-size: 14px;
   font-weight: 500;
   line-height: 1;
+  position: relative;
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  background-size: 12px;
   transition: all 0.2s ease;
+}
+
+.source-trigger::after {
+  content: '';
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-65%) rotate(45deg);
+  pointer-events: none;
 }
 
 .source-trigger:hover {
   color: #2563eb;
   border-color: rgba(37, 99, 235, 0.32);
   background-color: rgba(239, 246, 255, 0.95);
-  box-shadow: 0 6px 14px rgba(37, 99, 235, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.92);
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  box-shadow:
+    0 6px 14px rgba(37, 99, 235, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
 .source-options {
@@ -1510,7 +1904,9 @@ onUnmounted(() => {
 /* 过渡动画 */
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
 }
 
 .fade-enter-from,
@@ -1522,6 +1918,8 @@ onUnmounted(() => {
 .understanding-section {
   width: 100%;
   max-width: 800px;
+  margin: 0 auto;
+  align-self: center;
   background: rgba(255, 255, 255, 0.92);
   border-radius: 16px;
   padding: 18px 20px;
@@ -1530,6 +1928,8 @@ onUnmounted(() => {
 
 .understanding-header {
   display: flex;
+  justify-content: center;
+  text-align: center;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -1659,7 +2059,9 @@ onUnmounted(() => {
   color: #1e293b;
   background: #fff;
   outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
   box-sizing: border-box;
 }
 
@@ -1754,7 +2156,8 @@ onUnmounted(() => {
 }
 
 @keyframes thinking {
-  0%, 100% {
+  0%,
+  100% {
     transform: rotate(0deg) scale(1);
   }
   25% {
@@ -1869,7 +2272,10 @@ onUnmounted(() => {
   text-orientation: mixed;
   cursor: pointer;
   box-shadow: 0 16px 36px rgba(15, 23, 42, 0.24);
-  transition: transform 0.22s ease, box-shadow 0.22s ease, right 0.22s ease;
+  transition:
+    transform 0.22s ease,
+    box-shadow 0.22s ease,
+    right 0.22s ease;
 }
 
 .recent-drawer-trigger:hover {
@@ -2020,7 +2426,9 @@ onUnmounted(() => {
   background: transparent;
   cursor: pointer;
   text-align: left;
-  transition: background-color 0.18s ease, color 0.18s ease;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease;
 }
 
 .recent-search-row:hover {
@@ -2075,7 +2483,9 @@ onUnmounted(() => {
 
 .drawer-slide-enter-active,
 .drawer-slide-leave-active {
-  transition: transform 0.26s ease, opacity 0.26s ease;
+  transition:
+    transform 0.26s ease,
+    opacity 0.26s ease;
 }
 
 .drawer-slide-enter-from,
@@ -2090,7 +2500,7 @@ onUnmounted(() => {
     margin: 0 0 12px 0;
   }
 
-  .search-shell {
+  .agent-chat-shell {
     width: min(100%, calc(100vw - 28px));
     gap: 10px;
     padding: 14px 14px 12px;
@@ -2128,13 +2538,13 @@ onUnmounted(() => {
     min-height: 36px;
     font-size: 13px;
   }
-  
+
   .search-section {
     flex-direction: column;
     gap: 12px;
     align-items: center;
   }
-  
+
   .recent-drawer-trigger {
     right: 12px;
     padding: 14px 11px;
@@ -2171,39 +2581,50 @@ onUnmounted(() => {
     width: 100%;
     text-align: left;
   }
-  
+
   .keywords-section {
     padding: 20px;
     margin: 0 16px;
     border-radius: 12px;
   }
-  
+
   .keywords-header {
     flex-direction: column;
     align-items: center;
     gap: 8px;
     text-align: center;
   }
-  
+
   .keywords-header h3 {
     font-size: 18px;
   }
-  
+
   .keywords-list {
     padding: 8px;
     gap: 8px;
   }
-  
+
   .keywords-actions {
     flex-direction: column;
     align-items: stretch;
     gap: 12px;
   }
-  
+
   .btn {
     padding: 14px 20px;
     font-size: 14px;
   }
-  
+}
+.source-option-all {
+  font-weight: 750;
+}
+.source-option-all.partial .source-check {
+  color: #5c70ce;
+  font-weight: 900;
+}
+.source-options-divider {
+  height: 1px;
+  margin: 5px 8px;
+  background: rgba(129, 140, 190, 0.18);
 }
 </style>
