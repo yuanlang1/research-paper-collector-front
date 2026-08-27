@@ -13,11 +13,17 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:8082',
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path.replace(/^\/api/, '')
       },
+      '/agent-api': {
+        target: 'http://localhost:8002',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/agent-api/, '')
+      }
     }
   },
   // 生产环境构建配置

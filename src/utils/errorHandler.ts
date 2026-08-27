@@ -70,7 +70,7 @@ class ErrorHandler {
 
     // 根据状态码跳转到错误页面（不显示具体的API端点）
     if (this.router && statusCode) {
-      this.navigateToErrorPage(statusCode, this.getFriendlyErrorMessage(statusCode))
+      this.navigateToErrorPage(statusCode, this.getFriendlyErrorMessage(statusCode), endpoint)
     }
   }
 
@@ -111,14 +111,14 @@ class ErrorHandler {
     })
 
     if (this.router) {
-      this.navigateToErrorPage(503, '无法连接到服务器，请检查网络或后端状态')
+      this.navigateToErrorPage(503, '无法连接到服务器，请检查网络或后端状态', endpoint)
     }
   }
 
   /**
    * 跳转到错误页面
    */
-  private navigateToErrorPage(code: number, detail: string) {
+  private navigateToErrorPage(code: number, detail: string, endpoint?: string) {
     if (!this.router) return
 
     // 避免重复跳转到错误页面
@@ -129,7 +129,7 @@ class ErrorHandler {
     this.router.push({
       name: 'error',
       params: { code: code.toString() },
-      query: { detail }
+      query: { detail, endpoint }
     })
   }
 

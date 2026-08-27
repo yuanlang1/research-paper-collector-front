@@ -427,9 +427,15 @@ const updateTaskStatus = async (taskId: number): Promise<boolean> => {
             task.errorMessage = null
             break
           case 'COMPLETED':
+          case 'SUCCESS':
             task.status = 'success'
             task.progress = '检索成功'
             task.errorMessage = null
+            break
+          case 'PARTIAL_SUCCESS':
+            task.status = 'success'
+            task.progress = '部分成功'
+            task.errorMessage = response.data.errorMessage
             break
           case 'FAILED':
             task.status = 'failed'
