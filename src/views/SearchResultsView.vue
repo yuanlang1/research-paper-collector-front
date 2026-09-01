@@ -121,14 +121,6 @@
                   </div>
                   <div class="recommendation-actions">
                     <button
-                      class="recommendation-btn"
-                      type="button"
-                      :disabled="!paper.recommendation"
-                      @click="showRecommendationModal(paper)"
-                    >
-                      推荐语
-                    </button>
-                    <button
                       class="recommendation-btn reason-btn"
                       type="button"
                       :disabled="!(paper.reasons?.length)"
@@ -260,16 +252,8 @@
                   >
                     PDF
                   </button>
-                  <button 
-                    v-if="getPaperMdFileName(paper)"
-                    @click="openMarkdownViewer(paper)"
-                    class="action-btn md-btn compact-link-btn"
-                    title="查看 Markdown"
-                  >
-                    MD
-                  </button>
                   <span
-                    v-if="!paper.link && !getPaperPdfFileName(paper) && !getPaperMdFileName(paper)"
+                    v-if="!paper.link && !getPaperPdfFileName(paper)"
                     class="no-data"
                   >
                     -
@@ -623,13 +607,6 @@ const showSummaryModal = (paper: Paper) => {
   showModal.value = true
 }
 
-const showRecommendationModal = (paper: Paper) => {
-  modalTitle.value = `推荐语 - ${paper.title}`
-  modalContent.value = paper.recommendation || '暂无推荐语'
-  resetModalPosition()
-  showModal.value = true
-}
-
 const showReasonsModal = (paper: Paper) => {
   modalTitle.value = `推荐理由 - ${paper.title}`
   modalContent.value = paper.reasons?.length
@@ -825,19 +802,6 @@ const previewPDFInBrowser = async (paper: Paper) => {
   } finally {
     isLoading.value = false
   }
-}
-
-// 打开 Markdown 查看器
-const openMarkdownViewer = (paper: Paper) => {
-  const mdFileName = getPaperMdFileName(paper)
-  router.push({
-    name: 'document',
-    query: {
-      title: paper.title,
-      mdFileName: mdFileName,
-      viewMode: 'md'
-    }
-  })
 }
 
 // 获取搜索结果
@@ -2090,18 +2054,6 @@ onMounted(async () => {
   background-color: #bbdefb;
   color: #0d47a1;
   border-color: #0d47a1;
-}
-
-.md-btn {
-  color: #c2185b;
-  background: #fce4ec;
-  border-color: #c2185b;
-}
-
-.md-btn:hover {
-  background-color: #f8bbd0;
-  color: #880e4f;
-  border-color: #880e4f;
 }
 
 /* 无数据显示 */

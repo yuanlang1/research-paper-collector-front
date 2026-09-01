@@ -2,7 +2,7 @@ const AGENT_API_BASE_URL = (
   import.meta.env.VITE_AGENT_API_BASE_URL || 'http://localhost:8002/api/agent'
 ).replace(/\/$/, '')
 
-export type AgentRunStatus = 'idle' | 'streaming' | 'waiting_confirmation' | 'completed' | 'failed'
+export type AgentRunStatus = 'idle' | 'streaming' | 'detached' | 'waiting_confirmation' | 'completed' | 'failed'
 export type AgentDecision = 'approved' | 'rejected'
 
 export interface AgentChatRequest {
@@ -12,16 +12,21 @@ export interface AgentChatRequest {
 
 export interface AgentResumeRequest {
   conversation_id: string
+  run_id: string
+  action_id: string
   decision: AgentDecision
   comment?: string | null
 }
 
 export interface AgentInterrupt {
-  type: string
-  tool_call_id: string
-  tool_name: string
-  tool_arguments: Record<string, unknown>
-  message: string
+  action_id: string
+  action_type: 'tool' | 'subagent'
+  kind?: 'tool' | 'subagent'
+  name: string
+  display_name?: string
+  summary?: string
+  requires_confirmation?: boolean
+  status?: string
 }
 
 export interface AgentResponse<T = Record<string, unknown>> {
@@ -31,12 +36,125 @@ export interface AgentResponse<T = Record<string, unknown>> {
   data: T
 }
 
+export interface AgentConversationSummary {
+  conversation_id: string
+  title: string
+  last_message_preview: string
+  message_count: number
+  last_message_at: string
+}
+
+export interface AgentConversationListData {
+  items: AgentConversationSummary[]
+}
+
+export type AgentConversationMessageStatus =
+  | 'running'
+  | 'completed'
+  | 'confirmation_required'
+  | 'failed'
+  | 'blocked'
+  | 'interrupted'
+
+export interface AgentCardReasoning {
+  reasoning_id: string
+  scope: string
+  start_seq: number | null
+  end_seq: number | null
+  text: string
+}
+
+export interface AgentCardTimelineStep {
+  step_id: string
+  step_key?: string | null
+  label?: string | null
+  iteration?: number | null
+  state: string
+  start_seq: number | null
+  end_seq: number | null
+  error?: string | null
+}
+
+export interface AgentCardTool {
+  action_id: string
+  name?: string | null
+  status: string
+  start_seq: number | null
+  end_seq: number | null
+  summary?: string | null
+  artifact_refs?: string[]
+  error_code?: string | null
+  error_message?: string | null
+}
+
+export interface AgentCardSubagent {
+  delegation_id?: string | null
+  workflow?: string | null
+  name?: string | null
+  status: string
+  start_seq: number | null
+  end_seq: number | null
+  phase?: string | null
+  phase_label?: string | null
+  progress_percent?: number | null
+  iteration?: number | null
+  task_id?: string | number | null
+  warnings?: string[]
+  error?: string | null
+  summary?: string | null
+  artifact_refs?: string[]
+  error_code?: string | null
+  error_message?: string | null
+  timeline?: AgentCardTimelineStep[]
+}
+
+export interface AgentExecutionCardMeta {
+  status: string
+  latency_ms?: number
+  iterations?: number
+  model?: string | null
+  provider?: string | null
+  reasoning?: AgentCardReasoning[]
+  tools?: AgentCardTool[]
+  subagents?: AgentCardSubagent[]
+  artifact_refs?: string[]
+  pending_action?: AgentInterrupt | null
+  error?: string | null
+}
+
+export interface AgentConversationMessageMeta {
+  artifact_refs?: string[]
+  schema_version?: number
+  card?: AgentExecutionCardMeta
+  latency_ms?: number
+  error?: string | null
+}
+
+export interface AgentConversationMessage {
+  id: number
+  conversation_id: string
+  run_id: string
+  role: 'user' | 'assistant'
+  content: string
+  status: AgentConversationMessageStatus
+  source: string
+  meta: AgentConversationMessageMeta | null
+  created_at: string
+}
+
+export interface AgentConversationMessagesData {
+  conversation_id: string
+  items: AgentConversationMessage[]
+  next_before_id: number | null
+}
+
 export interface AgentStreamEvent<T = Record<string, unknown>> {
   event_id: string
   sequence: number
   event: string
   conversation_id: string
   run_id: string
+  assistant_message_id?: number | null
   timestamp: string
   data: T
 }
@@ -63,8 +181,10 @@ function createJsonError(response: Response): Promise<Error> {
   })
 }
 
-function createStreamError(response: Response): Promise<Error> {
-  return createJsonError(response)
+async function createStreamError(response: Response): Promise<Error> {
+  const error = await createJsonError(response)
+  error.name = 'AgentStreamHttpError'
+  return error
 }
 
 function streamRequest(
@@ -175,6 +295,18 @@ async function jsonRequest<T>(path: string, body: AgentResumeRequest): Promise<A
   return (await response.json()) as AgentResponse<T>
 }
 
+async function getJsonRequest<T>(path: string): Promise<AgentResponse<T>> {
+  const response = await fetch(`${AGENT_API_BASE_URL}${path}`, {
+    headers: { Accept: 'application/json' }
+  })
+
+  if (!response.ok) {
+    throw await createJsonError(response)
+  }
+
+  return (await response.json()) as AgentResponse<T>
+}
+
 export const agentService = {
   streamChat(request: AgentChatRequest, handlers: AgentStreamHandlers): AgentStreamController {
     return streamRequest('/chat/stream', request, handlers)
@@ -184,5 +316,22 @@ export const agentService = {
   },
   resumeStream(request: AgentResumeRequest, handlers: AgentStreamHandlers): AgentStreamController {
     return streamRequest('/chat/resume/stream', request, handlers)
+  },
+  getConversations(limit: number = 30): Promise<AgentResponse<AgentConversationListData>> {
+    const safeLimit = Math.min(100, Math.max(1, Math.trunc(limit)))
+    return getJsonRequest(`/conversations?limit=${safeLimit}`)
+  },
+  getConversationMessages(
+    conversationId: string,
+    options: { limit?: number; beforeId?: number } = {}
+  ): Promise<AgentResponse<AgentConversationMessagesData>> {
+    if (!conversationId) throw new Error('会话 ID 不能为空')
+
+    const params = new URLSearchParams({
+      limit: String(Math.min(100, Math.max(1, Math.trunc(options.limit ?? 100))))
+    })
+    if (options.beforeId !== undefined) params.set('before_id', String(options.beforeId))
+
+    return getJsonRequest(`/conversations/${encodeURIComponent(conversationId)}/messages?${params}`)
   }
 }

@@ -351,6 +351,105 @@ export interface TasksResponse {
   }
 }
 
+export interface ReviewTask {
+  id: number
+  taskId: number
+  topic: string
+  title: string
+  versionNumber: number
+  language: string
+  reviewTypeName: string
+  citationStyleName: string
+  creationTime: string
+}
+
+export interface ReviewTasksParams {
+  pageIndex: number
+  pageSize: number
+  taskId?: number
+  keyword?: string
+}
+
+export interface ReviewTasksResponse {
+  code: number
+  success: boolean
+  message: string | null
+  data: {
+    total: number
+    pages: number
+    pageNumber: number
+    pageSize: number
+    list: ReviewTask[]
+  }
+}
+
+export interface ReviewSection {
+  section_id: string
+  title: string
+  description: string
+  text: string
+  summary: string
+  used_claim_ids: string[]
+  omitted_claim_ids: string[]
+}
+
+export interface ReviewReference {
+  paper_id: string
+  formatted: string
+}
+
+export interface ReviewDetail {
+  id: number
+  taskId: number
+  versionNumber: number
+  topic: string
+  title: string
+  language: string
+  reviewType: number
+  reviewTypeName: string
+  citationStyle: number
+  citationStyleName: string
+  scope: string
+  abstractContent: string
+  bodyMarkdown: string
+  conclusion: string
+  markdown: string
+  sections: ReviewSection[]
+  paperIdsSnapshot: number[]
+  citationPaperIds: number[]
+  citationLabels: Record<string, string>
+  references: ReviewReference[]
+  frameworkHash: string
+  creationTime: string
+  modificationTime: string
+}
+
+export interface ReviewDetailResponse {
+  code: number
+  success: boolean
+  message: string | null
+  data: ReviewDetail
+}
+
+export type CitationStyle = 'harvard' | 'apa' | 'ieee' | 'chicago' | 'vancouver'
+
+export interface ReviewRenderParams {
+  citationStyle?: CitationStyle
+}
+
+export interface ReviewRender {
+  html: string
+  citationStyleName: string
+  renderer: 'pandoc'
+  sourceHash: string
+}
+
+export interface ReviewRenderResponse {
+  code: number
+  message: string | null
+  data: ReviewRender | null
+}
+
 // 任务状态查询响应接口
 export interface TaskStatusResponse {
   code: number
@@ -686,6 +785,71 @@ class ApiService {
     } else {
       throw new Error(`API error: ${response.message}`)
     }
+  }
+
+  async getReviewTasks(params: ReviewTasksParams): Promise<ReviewTasksResponse> {
+    const query = new URLSearchParams({
+      pageIndex: params.pageIndex.toString(),
+      pageSize: params.pageSize.toString()
+    })
+    const keyword = params.keyword?.trim()
+
+    if (params.taskId && params.taskId > 0) query.set('taskId', params.taskId.toString())
+    if (keyword) query.set('keyword', keyword)
+
+    const response = await this.request<ReviewTasksResponse>(`/review/task?${query}`, {}, true)
+    if (response.code !== 0 || !response.success) {
+      throw new Error(response.message || '获取综述任务失败')
+    }
+
+    return {
+      ...response,
+      data: {
+        ...response.data,
+        list: response.data.list.map((review) => ({
+          ...review,
+          creationTime: this.formatDateTime(review.creationTime)
+        }))
+      }
+    }
+  }
+
+  async getReviewDetail(id: number): Promise<ReviewDetailResponse> {
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new Error('综述 ID 必须是大于 0 的整数')
+    }
+
+    const response = await this.request<ReviewDetailResponse>(`/review/${id}`, {}, true)
+    if (response.code !== 0 || !response.success) {
+      throw new Error(response.message || '获取综述详情失败')
+    }
+
+    return {
+      ...response,
+      data: {
+        ...response.data,
+        creationTime: this.formatDateTime(response.data.creationTime),
+        modificationTime: this.formatDateTime(response.data.modificationTime)
+      }
+    }
+  }
+
+  async getReviewRender(id: number, params: ReviewRenderParams = {}): Promise<ReviewRender> {
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new Error('综述 ID 必须是大于 0 的整数')
+    }
+
+    const query = new URLSearchParams()
+    if (params.citationStyle) query.set('citationStyle', params.citationStyle)
+
+    const suffix = query.toString() ? `?${query.toString()}` : ''
+    const response = await this.request<ReviewRenderResponse>(`/review/${id}/render${suffix}`, {}, true)
+
+    if (response.code !== 0 || !response.data) {
+      throw new Error(response.message || '获取综述渲染内容失败')
+    }
+
+    return response.data
   }
 
   // 查询任务状态
