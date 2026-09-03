@@ -2,6 +2,8 @@ import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
 import SearchResultsView from '../views/SearchResultsView.vue'
 import TasksView from '../views/TasksView.vue'
+import ReviewTaskView from '../views/ReviewTaskView.vue'
+import ReviewDetailView from '../views/ReviewDetailView.vue'
 import DocumentView from '../views/DocumentView.vue'
 import ErrorView from '../views/ErrorView.vue'
 import { setupRouterGuards } from './guards'
@@ -32,6 +34,18 @@ const router = createRouter({
       name: 'tasks',
       component: TasksView,
       meta: { title: '任务管理' }
+    },
+    {
+      path: '/reviews',
+      name: 'review-tasks',
+      component: ReviewTaskView,
+      meta: { title: '综述任务' }
+    },
+    {
+      path: '/reviews/:id',
+      name: 'review-detail',
+      component: ReviewDetailView,
+      meta: { title: '综述详情' }
     },
     {
       path: '/error/:code?',

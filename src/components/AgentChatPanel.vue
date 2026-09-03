@@ -9,15 +9,6 @@
         <span v-if="hasConversation" class="chat-status" :class="`chat-status-${runStatus}`">{{
           statusLabel
         }}</span>
-        <button
-          v-if="hasConversation"
-          class="new-chat-button"
-          type="button"
-          :disabled="isRunning"
-          @click="resetConversation"
-        >
-          新对话
-        </button>
       </div>
     </header>
 
@@ -35,7 +26,7 @@
         <span class="message-role">{{
           message.role === 'user' ? '你' : message.role === 'assistant' ? '论文研究助手' : '系统'
         }}</span>
-        <div v-if="message.role === 'assistant' && (message.reasoning || message.thinkingStartedAt)" class="thinking-reasoning">
+        <div v-if="message.role === 'assistant' && (hasReasoning(message) || message.thinkingStartedAt)" class="thinking-reasoning">
           <button
             class="thinking-reasoning-header"
             :class="{ 'is-clickable': isThinkingComplete(message) }"
@@ -44,7 +35,8 @@
             :aria-label="isReasoningExpanded(message) ? '收起推理过程' : '展开推理过程'"
             @click="toggleReasoning(message)"
           >
-            <span v-if="isThinkingComplete(message)" class="thinking-reasoning-label">
+            <span v-if="!message.thinkingStartedAt" class="thinking-reasoning-label">思考过程</span>
+            <span v-else-if="isThinkingComplete(message)" class="thinking-reasoning-label">
               思考了 {{ getThinkingSeconds(message) }} 秒
             </span>
             <span v-else class="thinking-reasoning-label thinking-reasoning-shimmer">思考中…</span>
@@ -63,7 +55,7 @@
           <Transition name="reasoning-collapse">
             <div v-if="isReasoningExpanded(message)" class="thinking-reasoning-body">
               <div class="thinking-reasoning-viewport">
-                <p v-for="(line, index) in reasoningLines(message.reasoning)" :key="`${message.id}-${index}`" class="thinking-reasoning-line">
+                <p v-for="(line, index) in reasoningLines(reasoningText(message))" :key="`${message.id}-${index}`" class="thinking-reasoning-line">
                   {{ line }}
                 </p>
               </div>
@@ -71,7 +63,7 @@
           </Transition>
         </div>
         <div
-          v-if="message.content"
+          v-if="message.content && !message.executionCard"
           class="message-content markdown-body"
           :class="{ 'is-streaming': isMessageStreaming(message) }"
           v-html="renderMarkdown(message.content)"
@@ -88,90 +80,141 @@
             <path d="m14.7 4.3 5 5M4.5 19.5l3.2-.8L19.4 7a2.1 2.1 0 0 0-3-3L4.7 15.7l-.2 3.8Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </button>
-        <div v-if="message.artifacts?.length" class="artifact-list">
-          <code v-for="artifact in message.artifacts" :key="artifact">{{ artifact }}</code>
-        </div>
-      </article>
+        <section v-if="message.executionCard" class="execution-card">
+          <header class="execution-card-header">
+            <span class="execution-status" :class="`execution-status-${executionStatusTone(message.executionCard.status)}`">
+              {{ executionStatusLabel(message.executionCard.status) }}
+            </span>
+          </header>
 
-      <article v-if="activity" class="activity-card" :class="{ error: activity.level === 'error' }">
-        <span class="activity-dot"></span>
-        <div>
-          <strong>{{ activity.title }}</strong>
-          <p v-if="activity.detail">{{ activity.detail }}</p>
-        </div>
-      </article>
-
-      <section v-if="visibleTimelineGroups.length" class="todo-list" aria-label="任务列表">
-        <div v-for="group in visibleTimelineGroups" :key="group.id" class="todo-group">
-          <button
-            class="todo-header"
-            type="button"
-            :aria-expanded="!group.collapsed"
-            :aria-label="`${group.workflow}任务列表`"
-            @click="toggleTimelineGroup(group)"
+          <p v-if="message.executionCard.iterations || message.executionCard.latencyMs" class="execution-card-meta">
+            <span v-if="message.executionCard.iterations">{{ message.executionCard.iterations }} 轮推理</span>
+            <span v-if="message.executionCard.iterations && message.executionCard.latencyMs"> · </span>
+            <span v-if="message.executionCard.latencyMs">{{ formatDuration(message.executionCard.latencyMs) }}</span>
+          </p>
+          <section
+            v-if="message.executionCard.memory"
+            class="memory-retrieval"
+            :class="`memory-retrieval-${memoryRetrievalTone(message.executionCard.memory.status)}`"
           >
-            <span class="todo-header-icon" :class="getTimelineGroupStatus(group)">
-              <svg v-if="getTimelineGroupStatus(group) === 'completed'" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                <path fill-rule="evenodd" d="M12 2.25a9.75 9.75 0 1 0 0 19.5 9.75 9.75 0 0 0 0-19.5Zm4.08 6.99a.75.75 0 0 1 .18 1.05l-4.5 6a.75.75 0 0 1-1.12.08l-3-3a.75.75 0 0 1 1.06-1.06l2.39 2.39 3.93-5.24a.75.75 0 0 1 1.05-.17Z" fill="currentColor" />
-              </svg>
-              <svg v-else-if="getTimelineGroupStatus(group) === 'started'" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="2 3.2" stroke-linecap="round" />
-              </svg>
-              <svg v-else viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8" />
-                <path d="M12 7.5v5m0 3h.01" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-              </svg>
-            </span>
-            <span class="todo-title">{{ group.workflow }}</span>
-            <span class="todo-count">{{ getCompletedStepCount(group) }}/{{ group.steps.length }}</span>
-            <span v-if="getFailedStepCount(group)" class="todo-failed-count">
-              {{ getFailedStepCount(group) }} 失败
-            </span>
-            <svg class="todo-chevron" :class="{ 'is-collapsed': group.collapsed }" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <path d="m6.75 9 5.25 5.25L17.25 9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-          </button>
-          <Transition name="todo-collapse">
-            <ol v-if="!group.collapsed" class="todo-steps">
-              <li v-for="step in group.steps" :key="step.stepId" class="todo-step" :class="`todo-step-${step.state}`">
-                <span class="todo-step-icon" aria-hidden="true">
-                  <svg v-if="step.state === 'completed'" viewBox="0 0 24 24" width="16" height="16">
-                    <path d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-                  </svg>
-                  <svg v-else-if="step.state === 'started'" viewBox="0 0 24 24" width="16" height="16">
-                    <path d="m12.75 15 3-3m0 0-3-3m3 3h-7.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-                  </svg>
-                  <svg v-else viewBox="0 0 24 24" width="16" height="16">
-                    <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8" />
-                    <path d="M12 8v5m0 3h.01" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-                  </svg>
-                </span>
-                <div class="todo-step-content">
-                  <span class="todo-step-label">{{ step.label }}</span>
-                  <p v-if="step.error" class="todo-step-error">{{ step.error }}</p>
-                </div>
-              </li>
-            </ol>
-          </Transition>
-        </div>
-      </section>
+            <span class="memory-retrieval-indicator" aria-hidden="true"></span>
+            <div>
+              <p class="memory-retrieval-title">{{ memoryRetrievalLabel(message.executionCard.memory.status) }}</p>
+              <p class="memory-retrieval-detail">{{ memoryRetrievalDetail(message.executionCard.memory) }}</p>
+            </div>
+          </section>
+          <ol v-if="message.executionCard.activities.length" class="execution-activity-list">
+            <li
+              v-for="(activityItem, index) in message.executionCard.activities"
+              :key="activityItem.id"
+              class="execution-activity"
+              :class="`execution-activity-${executionStatusTone(activityItem.status)}`"
+            >
+              <span class="execution-activity-rail" aria-hidden="true"></span>
+              <div class="execution-activity-content">
+                <p class="execution-activity-title">
+                  <span class="execution-activity-index">#{{ index + 1 }}</span>
+                  <span>{{ activityItem.kind === 'tool' ? '工具调用' : '子代理' }}</span>
+                  <strong>{{ activityItem.name }}</strong>
+                  <span class="execution-activity-status">{{ executionStatusLabel(activityItem.status) }}</span>
+                </p>
+                <p v-if="executionActivityDetail(activityItem)" class="execution-activity-detail">
+                  {{ executionActivityDetail(activityItem) }}
+                </p>
+                <p v-if="activityItem.error" class="execution-activity-error">{{ activityItem.error }}</p>
 
-      <article v-if="pendingConfirmation" class="confirmation-card">
-        <p class="confirmation-title">需要你的确认</p>
-        <p>{{ pendingConfirmation.message }}</p>
-        <textarea
-          v-model="confirmationComment"
-          rows="2"
-          placeholder="可选备注，例如：按当前筛选条件执行"
-        ></textarea>
-        <div class="confirmation-actions">
-          <button type="button" class="reject-button" @click="resume('rejected')">暂不执行</button>
-          <button type="button" class="approve-button" @click="resume('approved')">允许执行</button>
-        </div>
+                <template v-if="activityItem.kind === 'subagent'">
+                  <div v-if="activityItem.summary || activityItem.warnings.length" class="execution-subagent-note">
+                    <button
+                      class="execution-section-toggle"
+                      type="button"
+                      :aria-expanded="isActivityDetailsExpanded(activityItem)"
+                      @click="toggleActivityDetails(activityItem)"
+                    >
+                      <span>执行说明</span>
+                      <svg class="execution-section-chevron" :class="{ 'is-expanded': isActivityDetailsExpanded(activityItem) }" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                        <path d="m6.75 9 5.25 5.25L17.25 9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                      </svg>
+                    </button>
+                    <div v-if="isActivityDetailsExpanded(activityItem)">
+                      <p v-if="activityItem.summary">{{ activityItem.summary }}</p>
+                      <p v-for="warning in activityItem.warnings" :key="warning" class="execution-subagent-warning">
+                        {{ warning }}
+                      </p>
+                    </div>
+                  </div>
+                  <div v-if="activityItem.timeline.length" class="execution-workflow">
+                    <button
+                      class="execution-section-toggle"
+                      type="button"
+                      :aria-expanded="isTimelineExpanded(activityItem)"
+                      @click="toggleTimeline(activityItem)"
+                    >
+                      <span>Workflow timeline</span>
+                      <svg class="execution-section-chevron" :class="{ 'is-expanded': isTimelineExpanded(activityItem) }" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                        <path d="m6.75 9 5.25 5.25L17.25 9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                      </svg>
+                    </button>
+                    <ol v-if="isTimelineExpanded(activityItem)">
+                      <li
+                        v-for="step in activityItem.timeline"
+                        :key="step.stepId"
+                        :class="`execution-workflow-step-${step.state}`"
+                      >
+                        <span>{{ step.label }}</span>
+                        <small>{{ executionStepLabel(step.state) }}</small>
+                        <p v-if="step.error">{{ step.error }}</p>
+                      </li>
+                    </ol>
+                  </div>
+                </template>
+
+              </div>
+            </li>
+          </ol>
+
+          <article v-if="message.executionCard?.pendingAction" class="confirmation-card execution-confirmation-card">
+            <p class="confirmation-title">需要你的确认</p>
+            <p>将执行：{{ message.executionCard.pendingAction.display_name || message.executionCard.pendingAction.name }}</p>
+            <p v-if="message.executionCard.pendingAction.summary">内容：{{ message.executionCard.pendingAction.summary }}</p>
+            <textarea
+              v-model="confirmationComment"
+              rows="2"
+              :disabled="isRunning"
+              placeholder="可选备注，例如：按当前筛选条件执行"
+            ></textarea>
+            <div class="confirmation-actions">
+              <button type="button" class="reject-button" :disabled="isRunning" @click="resume('rejected')">暂不执行</button>
+              <button type="button" class="approve-button" :disabled="isRunning" @click="resume('approved')">
+                {{ isRunning ? '正在继续执行…' : '允许执行' }}
+              </button>
+            </div>
+          </article>
+
+          <section v-if="shouldShowExecutionResult(message.executionCard.status)" class="execution-final-result">
+            <p>{{ executionResultTitle(message.executionCard.status) }}</p>
+            <div v-if="message.content" class="message-content markdown-body" v-html="renderMarkdown(message.content)"></div>
+            <p v-else-if="message.executionCard.error" class="execution-activity-error">{{ message.executionCard.error }}</p>
+          </section>
+        </section>
       </article>
+
     </div>
 
     <div class="chat-composer">
+      <div class="llm-profile-selector">
+        <label for="llm-profile-select">模型</label>
+        <select
+          id="llm-profile-select"
+          :value="selectedLlmProfileId"
+          :disabled="llmSelectorDisabled"
+          @change="selectLlmProfile"
+        >
+          <option v-for="profile in enabledLlmProfiles" :key="profile.id" :value="profile.id">
+            {{ profile.name }}
+          </option>
+        </select>
+      </div>
       <textarea
         ref="composerRef"
         v-model="draft"
@@ -181,8 +224,8 @@
         @keydown.enter.exact.prevent="send"
         @keydown.enter.shift.exact.stop
       ></textarea>
-      <button v-if="isRunning" class="stop-button" type="button" @click="stopStreaming">
-        停止
+      <button v-if="isRunning" class="stop-button" type="button" @click="disconnectStream">
+        断开实时连接
       </button>
       <button
         v-if="!isRunning"
@@ -202,13 +245,14 @@
   </section>
 </template>
 
-<script setup lang="ts">
+<script lang="ts">/*
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import type { PaperTagValue, SourceTag } from '@/constants/searchTagMappings'
 import {
   agentService,
   type AgentInterrupt,
+  type AgentConversationMessage,
   type AgentRunStatus,
   type AgentStreamController,
   type AgentStreamEvent
@@ -263,6 +307,7 @@ const emit = defineEmits<{
   'update:isRunning': [value: boolean]
   'message-sent': [message: string]
   'conversation-changed': [value: boolean]
+  'conversation-updated': [conversationId: string]
   'restore-filters': [filters: FilterSnapshot]
 }>()
 const messages = ref<ChatMessage[]>([])
@@ -354,6 +399,26 @@ function resetConversation() {
   runStatus.value = 'idle'
   nextTick(() => composerRef.value?.focus())
 }
+
+function loadConversation(historyMessages: AgentConversationMessage[]) {
+  clearStream()
+  messages.value = historyMessages.map((message) => ({
+    id: `history-${message.id}`,
+    role: message.role,
+    content: message.content,
+    artifacts: message.meta?.artifact_refs?.filter(String)
+  }))
+  conversationId.value = historyMessages[0]?.conversation_id || null
+  draft.value = ''
+  pendingConfirmation.value = null
+  confirmationComment.value = ''
+  activity.value = null
+  timelineGroups.value = []
+  activeRunId.value = null
+  activeAssistantMessageId = null
+  runStatus.value = 'idle'
+  nextTick(scrollToBottom)
+}
 function stopStreaming() {
   finalizeActiveThinking()
   clearStream()
@@ -383,7 +448,8 @@ function initializeAssistantMessage() {
 }
 
 function isThinkingComplete(message: ChatMessage) {
-  return Boolean(message.thinkingCompletedAt)
+  return Boolean(message.thinkingCompletedAt) ||
+    (!message.thinkingStartedAt && Boolean(message.executionCard?.reasoning.length))
 }
 
 function isReasoningExpanded(message: ChatMessage) {
@@ -399,6 +465,14 @@ function getThinkingSeconds(message: ChatMessage) {
 
 function reasoningLines(reasoning?: string) {
   return reasoning?.split(/\n+/).map((line) => line.trim()).filter(Boolean) || []
+}
+
+function reasoningText(message: ChatMessage) {
+  return message.executionCard?.reasoning.join('\n') || message.reasoning || ''
+}
+
+function hasReasoning(message: ChatMessage) {
+  return Boolean(reasoningText(message))
 }
 
 function toggleReasoning(message: ChatMessage) {
@@ -603,6 +677,7 @@ function handleEvent(event: AgentStreamEvent) {
     runStatus.value = 'completed'
     activity.value = null
     emit('completed')
+    if (conversationId.value) emit('conversation-updated', conversationId.value)
     clearStream()
   }
   if (event.event === 'run_failed') {
@@ -617,6 +692,241 @@ function handleEvent(event: AgentStreamEvent) {
   }
 }
 onBeforeUnmount(clearStream)
+
+defineExpose({
+  resetConversation,
+  loadConversation
+})
+*/</script>
+<script setup lang="ts">
+import { computed, nextTick, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
+import MarkdownIt from 'markdown-it'
+import type { LlmProfile } from '@/services/llmProfileService'
+import {
+  useAgentChatStore,
+  type ChatMessage,
+  type FilterSnapshot,
+  type HistoricalExecutionActivity,
+  type HistoricalMemoryRetrieval
+} from '@/stores/agentChat'
+
+const markdown = new MarkdownIt({ html: false, linkify: true, breaks: true, typographer: true })
+const chatStore = useAgentChatStore()
+const {
+  messages,
+  runStatus,
+  pendingConfirmation,
+  confirmationComment,
+  hasConversation,
+  selectedLlmProfileId,
+  isRunning
+} = storeToRefs(chatStore)
+const draft = ref('')
+const messageListRef = ref<HTMLElement | null>(null)
+const composerRef = ref<HTMLTextAreaElement | null>(null)
+
+const props = defineProps<{
+  currentFilters: FilterSnapshot
+  llmProfiles?: LlmProfile[]
+}>()
+const emit = defineEmits<{
+  completed: []
+  'update:isRunning': [value: boolean]
+  'message-sent': [message: string]
+  'conversation-changed': [value: boolean]
+  'conversation-updated': [conversationId: string]
+  'restore-filters': [filters: FilterSnapshot]
+}>()
+
+const canReuseMessage = computed(() => !isRunning.value && runStatus.value !== 'waiting_confirmation')
+const enabledLlmProfiles = computed(() => (props.llmProfiles || []).filter((profile) => profile.enabled))
+const llmSelectorDisabled = computed(() => isRunning.value || runStatus.value === 'waiting_confirmation')
+const statusLabel = computed(() => ({
+  idle: '准备就绪', streaming: '正在执行', detached: '后台执行中（实时连接已断开）', waiting_confirmation: '等待确认', completed: '本轮完成', failed: '执行失败'
+})[runStatus.value])
+
+function executionStatusTone(status: string) {
+  if (['completed', 'success', 'accepted'].includes(status)) return 'completed'
+  if (['failed', 'error', 'rejected', 'blocked', 'interrupted', 'partial', 'partial_failed'].includes(status)) return 'failed'
+  return 'started'
+}
+
+function executionStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    completed: '已完成',
+    success: '已完成',
+    accepted: '已接受',
+    running: '进行中',
+    detached: '后台执行中',
+    confirmation_required: '等待确认',
+    failed: '失败',
+    error: '失败',
+    rejected: '已拒绝',
+    blocked: '已阻塞',
+    interrupted: '已中断',
+    partial: '部分完成',
+    partial_failed: '部分失败'
+  }
+  return labels[status] || status
+}
+
+function executionStepLabel(state: string) {
+  if (state === 'completed') return '完成'
+  if (state === 'failed') return '失败'
+  return '进行中'
+}
+
+function memoryRetrievalTone(status: string) {
+  if (status === 'completed') return 'completed'
+  if (status === 'failed') return 'failed'
+  if (status === 'empty' || status === 'skipped') return 'empty'
+  return 'running'
+}
+
+function memoryRetrievalLabel(status: string) {
+  const labels: Record<string, string> = {
+    running: '正在检索会话记忆',
+    completed: '已加载会话记忆',
+    empty: '未找到匹配的会话记忆',
+    failed: '会话记忆暂不可用',
+    skipped: '已跳过会话记忆检索'
+  }
+  return labels[status] || '正在处理会话记忆'
+}
+
+function memoryRetrievalDetail(memory: HistoricalMemoryRetrieval) {
+  if (memory.status === 'running') return '正在匹配长期偏好与会话摘要'
+  if (memory.status === 'empty') return '未匹配到长期记忆或会话摘要'
+  if (memory.status === 'failed') return '已跳过记忆上下文，继续执行'
+  if (memory.status === 'skipped') return '本轮无需调用记忆'
+  return `长期记忆 ${memory.factsCount} 条 · 会话摘要 ${memory.episodesCount} 条`
+}
+
+function isActivityDetailsExpanded(activityItem: HistoricalExecutionActivity) {
+  return activityItem.detailsExpanded ?? activityItem.status === 'running'
+}
+
+function toggleActivityDetails(activityItem: HistoricalExecutionActivity) {
+  activityItem.detailsExpanded = !isActivityDetailsExpanded(activityItem)
+}
+
+function isTimelineExpanded(activityItem: HistoricalExecutionActivity) {
+  return activityItem.timelineExpanded ?? activityItem.status === 'running'
+}
+
+function toggleTimeline(activityItem: HistoricalExecutionActivity) {
+  activityItem.timelineExpanded = !isTimelineExpanded(activityItem)
+}
+
+function shouldShowExecutionResult(status: string) {
+  return status !== 'running' && status !== 'detached'
+}
+
+function executionResultTitle(status: string) {
+  return status === 'confirmation_required' ? '等待确认' : '最终结果'
+}
+
+function formatDuration(latencyMs: number) {
+  return latencyMs < 1000 ? `${latencyMs} ms` : `${(latencyMs / 1000).toFixed(1)} 秒`
+}
+
+function executionActivityDetail(activityItem: HistoricalExecutionActivity) {
+  const parts: string[] = []
+  if (activityItem.kind === 'tool' && activityItem.summary) parts.push(activityItem.summary)
+  if (activityItem.phaseLabel) parts.push(activityItem.phaseLabel)
+  if (activityItem.progressPercent !== null) parts.push(`${activityItem.progressPercent}%`)
+  if (activityItem.taskId !== null) parts.push(`任务 #${activityItem.taskId}`)
+  return parts.join(' · ')
+}
+
+function renderMarkdown(content: string) {
+  return markdown.render(content)
+}
+
+function scrollToBottom() {
+  if (messageListRef.value) messageListRef.value.scrollTop = messageListRef.value.scrollHeight
+}
+
+function isThinkingComplete(message: ChatMessage) {
+  return Boolean(message.thinkingCompletedAt) ||
+    (!message.thinkingStartedAt && Boolean(message.executionCard?.reasoning.length))
+}
+
+function isReasoningExpanded(message: ChatMessage) {
+  return isThinkingComplete(message) ? Boolean(message.reasoningExpanded) : true
+}
+
+function getThinkingSeconds(message: ChatMessage) {
+  if (!message.thinkingStartedAt || !message.thinkingCompletedAt) return 1
+  return Math.max(1, Math.round((message.thinkingCompletedAt - message.thinkingStartedAt) / 1000))
+}
+
+function reasoningLines(reasoning?: string) {
+  return reasoning?.split(/\n+/).map((line) => line.trim()).filter(Boolean) || []
+}
+
+function reasoningText(message: ChatMessage) {
+  return message.executionCard?.reasoning.join('\n') || message.reasoning || ''
+}
+
+function hasReasoning(message: ChatMessage) {
+  return Boolean(reasoningText(message))
+}
+
+function toggleReasoning(message: ChatMessage) {
+  if (isThinkingComplete(message) && hasReasoning(message)) message.reasoningExpanded = !message.reasoningExpanded
+}
+
+function isMessageStreaming(message: ChatMessage) {
+  return Boolean(message.thinkingStartedAt) && !message.thinkingCompletedAt && isRunning.value
+}
+
+function reuseMessage(message: ChatMessage) {
+  if (message.role !== 'user' || !canReuseMessage.value) return
+  draft.value = message.content
+  if (message.filters) emit('restore-filters', message.filters)
+  nextTick(() => {
+    composerRef.value?.focus()
+    composerRef.value?.select()
+  })
+}
+
+function send() {
+  const message = draft.value.trim()
+  if (!message || isRunning.value) return
+  chatStore.send(message, props.currentFilters)
+  emit('message-sent', message)
+  draft.value = ''
+}
+
+function resume(decision: 'approved' | 'rejected') {
+  chatStore.resume(decision)
+}
+
+function disconnectStream() {
+  chatStore.disconnectStream()
+}
+
+function selectLlmProfile(event: Event) {
+  const value = (event.target as HTMLSelectElement).value
+  chatStore.setLlmProfile(value ? Number(value) : null)
+}
+
+watch(isRunning, (value) => emit('update:isRunning', value), { immediate: true })
+watch(hasConversation, (value) => emit('conversation-changed', value), { immediate: true })
+watch(enabledLlmProfiles, (profiles) => {
+  const selectedProfileExists = profiles.some((profile) => profile.id === selectedLlmProfileId.value)
+  if (selectedProfileExists) return
+
+  chatStore.setLlmProfile(profiles.find((profile) => profile.is_default)?.id ?? profiles[0]?.id ?? null)
+}, { immediate: true })
+watch([messages, pendingConfirmation], () => nextTick(scrollToBottom), { deep: true })
+watch(runStatus, (status) => {
+  if (status !== 'completed') return
+  emit('completed')
+  if (chatStore.conversationId) emit('conversation-updated', chatStore.conversationId)
+})
 </script>
 
 <style scoped>
@@ -676,7 +986,6 @@ onBeforeUnmount(clearStream)
   color: #b91c1c;
   background: #fee2e2;
 }
-.new-chat-button,
 .stop-button,
 .send-button,
 .approve-button,
@@ -688,14 +997,9 @@ onBeforeUnmount(clearStream)
   font-weight: 700;
   cursor: pointer;
 }
-.new-chat-button,
 .reject-button {
   color: #475569;
   background: #e2e8f0;
-}
-.new-chat-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 .chat-filter-slot {
   padding: 14px 24px;
@@ -855,19 +1159,299 @@ onBeforeUnmount(clearStream)
   line-height: 1.6;
   white-space: pre-wrap;
 }
-.artifact-list {
+.execution-card {
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid #dbe4f0;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #fbfdff, #f5f8fc);
+}
+.execution-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 14px;
+  border-bottom: 1px solid #e5ebf3;
+}
+.execution-card-meta,
+.execution-final-result > p {
+  margin: 0;
+}
+.execution-status,
+.execution-activity-status {
+  flex: none;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.execution-status {
+  padding: 4px 8px;
+  color: #4f6fe8;
+  background: #e8edff;
+}
+.execution-status-completed {
+  color: #15803d;
+  background: #dcfce7;
+}
+.execution-status-failed {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+.execution-card-meta {
+  padding: 9px 14px 0;
+  color: #7a879d;
+  font-size: 12px;
+}
+.memory-retrieval {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 10px 14px 0;
+  padding: 9px 10px;
+  border: 1px solid #dbe4f0;
+  border-radius: 10px;
+  color: #5d6b82;
+  background: rgba(255, 255, 255, 0.72);
+}
+.memory-retrieval-indicator {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: #7c91d8;
+}
+.memory-retrieval-title,
+.memory-retrieval-detail {
+  margin: 0;
+}
+.memory-retrieval-title {
+  color: #465775;
+  font-size: 12px;
+  font-weight: 750;
+}
+.memory-retrieval-detail {
+  margin-top: 2px;
+  color: #7a879d;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.memory-retrieval-running .memory-retrieval-indicator {
+  animation: pulse 1.2s infinite;
+}
+.memory-retrieval-completed {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+.memory-retrieval-completed .memory-retrieval-indicator {
+  background: #16a34a;
+}
+.memory-retrieval-completed .memory-retrieval-title {
+  color: #166534;
+}
+.memory-retrieval-empty {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+}
+.memory-retrieval-empty .memory-retrieval-indicator {
+  background: #94a3b8;
+}
+.memory-retrieval-failed {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+.memory-retrieval-failed .memory-retrieval-indicator {
+  background: #dc2626;
+}
+.memory-retrieval-failed .memory-retrieval-title,
+.memory-retrieval-failed .memory-retrieval-detail {
+  color: #b91c1c;
+}
+.execution-activity-list {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  margin-top: 9px;
+  gap: 12px;
+  margin: 0;
+  padding: 14px;
+  list-style: none;
 }
-.artifact-list code {
-  padding: 6px 8px;
-  overflow: auto;
-  border-radius: 6px;
-  color: #1d4ed8;
-  background: rgba(255, 255, 255, 0.68);
+.execution-activity {
+  position: relative;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 9px;
+}
+.execution-activity:not(:last-child)::after {
+  position: absolute;
+  top: 16px;
+  bottom: -12px;
+  left: 6px;
+  width: 1px;
+  background: #d7dfeb;
+  content: '';
+}
+.execution-activity-rail {
+  z-index: 1;
+  width: 11px;
+  height: 11px;
+  margin-top: 5px;
+  border: 2px solid #7c91d8;
+  border-radius: 50%;
+  background: #fff;
+}
+.execution-activity-completed .execution-activity-rail {
+  border-color: #22a35a;
+  background: #dcfce7;
+}
+.execution-activity-failed .execution-activity-rail {
+  border-color: #dc2626;
+  background: #fee2e2;
+}
+.execution-activity-content {
+  min-width: 0;
+}
+.execution-activity-title,
+.execution-activity-detail,
+.execution-activity-error,
+.execution-subagent-note p,
+.execution-workflow p {
+  margin: 0;
+}
+.execution-activity-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: #56657e;
+  font-size: 12px;
+}
+.execution-activity-title strong {
+  color: #334155;
+  font-size: 13px;
+}
+.execution-activity-index {
+  color: #7080a0;
+  font-variant-numeric: tabular-nums;
+}
+.execution-activity-status {
+  padding: 2px 6px;
+  color: #64748b;
+  background: #eef2f7;
+}
+.execution-activity-completed .execution-activity-status {
+  color: #15803d;
+  background: #dcfce7;
+}
+.execution-activity-failed .execution-activity-status {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+.execution-activity-detail {
+  margin-top: 4px;
+  color: #7a879d;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.execution-activity-error,
+.execution-subagent-warning {
+  margin-top: 5px !important;
+  color: #b91c1c;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.execution-subagent-note,
+.execution-workflow {
+  margin-top: 9px;
+  padding: 9px 10px;
+  border: 1px solid #e1e7f0;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.72);
+}
+.execution-section-toggle {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 5px;
+  padding: 0;
+  border: 0;
+  color: #64748b;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
   font-size: 11px;
+  font-weight: 800;
+  text-align: left;
+}
+.execution-section-chevron {
+  margin-left: auto;
+  transition: transform 0.18s ease;
+}
+.execution-section-chevron.is-expanded {
+  transform: rotate(180deg);
+}
+.execution-subagent-note p {
+  color: #5d6b82;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.execution-workflow ol {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.execution-workflow li {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  gap: 8px;
+  color: #64748b;
+  font-size: 12px;
+}
+.execution-workflow li::before {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  width: 7px;
+  height: 7px;
+  margin: 5px 0 0 1px;
+  border-radius: 50%;
+  background: #7c91d8;
+  content: '';
+}
+.execution-workflow li > span {
+  grid-column: 2;
+}
+.execution-workflow li small {
+  grid-column: 3;
+  color: #94a3b8;
+  font-size: 11px;
+}
+.execution-workflow li p {
+  grid-column: 2 / -1;
+  color: #b91c1c;
+  font-size: 11px;
+}
+.execution-workflow-step-completed::before {
+  background: #22a35a !important;
+}
+.execution-workflow-step-failed::before {
+  background: #dc2626 !important;
+}
+.execution-final-result {
+  padding: 12px 14px 14px 37px;
+  border-top: 1px solid #e5ebf3;
+  background: rgba(255, 255, 255, 0.6);
+}
+.execution-final-result > p {
+  margin-bottom: 7px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+}
+.execution-final-result .message-content {
+  color: #334155;
 }
 .activity-card {
   display: flex;
@@ -1133,10 +1717,6 @@ onBeforeUnmount(clearStream)
   }
   .chat-header-actions {
     gap: 7px;
-  }
-  .new-chat-button {
-    padding: 7px 9px;
-    font-size: 12px;
   }
 }
 .agent-chat-panel {
@@ -1521,6 +2101,10 @@ onBeforeUnmount(clearStream)
   cursor: not-allowed;
 }
 .chat-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(130px, 170px) auto;
+  column-gap: 8px;
+  align-items: end;
   padding: 16px 18px 13px;
   border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 24px;
@@ -1531,12 +2115,57 @@ onBeforeUnmount(clearStream)
   backdrop-filter: blur(20px) saturate(135%);
   -webkit-backdrop-filter: blur(20px) saturate(135%);
 }
+.chat-composer > textarea {
+  grid-column: 1;
+  grid-row: 1;
+}
+.llm-profile-selector {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  margin: 0;
+}
+.llm-profile-selector label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.llm-profile-selector select {
+  width: 100%;
+  min-width: 0;
+  height: 31px;
+  border: 1px solid rgba(122, 143, 179, 0.3);
+  border-radius: 9px;
+  padding: 0 9px;
+  color: #354867;
+  background: rgba(255, 255, 255, 0.76);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+.llm-profile-selector select:focus {
+  border-color: rgba(79, 111, 232, 0.75);
+  box-shadow: 0 0 0 3px rgba(79, 111, 232, 0.12);
+}
+.llm-profile-selector select:disabled {
+  color: #8795a9;
+  background: rgba(241, 245, 249, 0.74);
+  cursor: not-allowed;
+}
 .chat-filter-slot {
+  grid-column: 1 / -1;
   padding: 0;
   background: transparent;
   border: 0;
 }
 .composer-divider {
+  grid-column: 1 / -1;
   height: 1px;
   margin: 8px 0 9px;
   background: linear-gradient(90deg, transparent, rgba(129, 140, 190, 0.25), transparent);
@@ -1579,6 +2208,7 @@ onBeforeUnmount(clearStream)
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 .chat-composer > p {
+  grid-column: 1 / -1;
   margin-top: 8px;
 }
 .search-agent-button {
@@ -1610,7 +2240,30 @@ onBeforeUnmount(clearStream)
   cursor: not-allowed;
 }
 
-.send-button {
-  margin: -49px 4px 0 0;
+.chat-composer > .send-button,
+.chat-composer > .stop-button {
+  grid-column: 3;
+  grid-row: 1;
+  float: none;
+  margin: 0;
+}
+@media (max-width: 560px) {
+  .chat-composer {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 8px;
+  }
+  .chat-composer textarea {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  .llm-profile-selector {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .chat-composer > .send-button,
+  .chat-composer > .stop-button {
+    grid-column: 2;
+    grid-row: 2;
+  }
 }
 </style>

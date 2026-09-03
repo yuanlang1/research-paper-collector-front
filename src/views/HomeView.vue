@@ -12,16 +12,19 @@
 
       <!-- AI 对话区域 -->
       <div class="agent-chat-shell">
-        <AgentChatPanel
-          :current-filters="{
-            yearTag: filterYear,
-            paperTags: selectedPaperTags,
-            sourceTags: selectedSources
-          }"
+          <AgentChatPanel
+            :current-filters="{
+              yearTag: filterYear,
+              paperTags: selectedPaperTags,
+              sourceTags: selectedSources
+            }"
+            :llm-profiles="llmProfiles"
           @message-sent="handleAgentMessage"
           @restore-filters="restoreAgentFilters"
           @conversation-changed="hasConversation = $event"
-          @completed="fetchRecentSearches"
+          @conversation-updated="handleConversationUpdated"
+          @update:is-running="isAgentRunning = $event"
+          @completed="handleAgentCompleted"
         >
           <template #filters>
             <div class="search-toolbar">
@@ -147,9 +150,75 @@
       </div>
     </div>
 
+    <button
+      class="conversation-sidebar-trigger"
+      type="button"
+      :aria-expanded="isConversationSidebarOpen"
+      @click="isConversationSidebarOpen = !isConversationSidebarOpen"
+    >
+      历史会话
+    </button>
+
+    <aside
+      class="conversation-sidebar"
+      :class="{
+        'conversation-sidebar-mobile-open': isConversationSidebarOpen,
+        'conversation-sidebar-resizing': isConversationSidebarResizing
+      }"
+      :style="conversationSidebarStyle"
+      aria-label="历史会话"
+    >
+      <div
+        class="conversation-sidebar-resize-handle"
+        :class="{ 'conversation-sidebar-resize-handle-active': isConversationSidebarResizing }"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整历史会话侧边栏宽度"
+        @pointerdown="startConversationSidebarResize"
+      ></div>
+      <div class="conversation-sidebar-brand">Paper Research</div>
+      <button
+        class="new-conversation-button"
+        type="button"
+        :disabled="isAgentRunning"
+        @click="startNewConversation"
+      >
+        <span aria-hidden="true">＋</span>
+        开启新对话
+      </button>
+
+      <div class="conversation-sidebar-heading">历史会话</div>
+      <div class="conversation-sidebar-list">
+        <div v-if="isConversationsLoading" class="conversation-loading-list" aria-label="正在加载历史会话">
+          <span v-for="index in 5" :key="index" class="conversation-loading-row"></span>
+        </div>
+        <p v-else-if="conversationLoadError" class="conversation-load-error">
+          {{ conversationLoadError }}
+          <button type="button" @click="fetchConversations">重试</button>
+        </p>
+        <p v-else-if="!conversations.length" class="conversation-empty-state">你的历史对话会显示在这里。</p>
+        <button
+          v-for="conversation in conversations"
+          :key="conversation.conversation_id"
+          class="conversation-row"
+          :class="{ 'conversation-row-active': selectedConversationId === conversation.conversation_id }"
+          type="button"
+          :disabled="isAgentRunning || isConversationLoading"
+          :title="conversation.title"
+          @click="openConversation(conversation.conversation_id)"
+        >
+          <span class="conversation-row-title">{{ conversation.title || '未命名对话' }}</span>
+          <span class="conversation-row-preview">{{ conversation.last_message_preview }}</span>
+        </button>
+      </div>
+    </aside>
+
     <button class="settings-trigger" type="button" @click="openSettingsModal">设置</button>
 
-    <button class="tasks-trigger" type="button" @click="openTasksView">检索任务列表</button>
+    <div class="task-entry-actions">
+      <button class="tasks-trigger" type="button" @click="openTasksView">检索任务</button>
+      <button class="review-tasks-trigger" type="button" @click="openReviewTasksView">综述任务</button>
+    </div>
 
     <transition name="settings-fade">
       <div v-if="isSettingsOpen" class="settings-overlay" @click="closeSettingsModal"></div>
@@ -175,184 +244,26 @@
         <div class="settings-tabs">
           <button
             class="settings-tab"
-            :class="{ active: activeSettingsTab === 'strategy' }"
+            :class="{ active: activeSettingsTab === 'source-limits' }"
             type="button"
-            @click="activeSettingsTab = 'strategy'"
+            @click="activeSettingsTab = 'source-limits'"
           >
-            检索源
+            来源上限
           </button>
           <button
             class="settings-tab"
-            :class="{ active: activeSettingsTab === 'ai' }"
+            :class="{ active: activeSettingsTab === 'llm' }"
             type="button"
-            @click="activeSettingsTab = 'ai'"
+            @click="activeSettingsTab = 'llm'"
           >
-            旧检索 AI 设置
+            LLM 配置档案
           </button>
         </div>
 
-        <div
-          v-if="settingsMessage"
-          class="settings-message"
-          :class="`settings-message-${settingsMessageType}`"
-        >
-          {{ settingsMessage }}
-        </div>
-
         <div class="settings-body">
-          <div v-if="activeSettingsTab === 'strategy'" class="settings-panel">
-            <div class="settings-panel-title">
-              <h3>检索源策略</h3>
-              <button
-                class="settings-secondary-btn"
-                type="button"
-                :disabled="isStrategyLoading"
-                @click="loadStrategyConfig"
-              >
-                刷新
-              </button>
-            </div>
+          <SourceLimitsPanel v-if="activeSettingsTab === 'source-limits'" />
 
-            <div v-if="isStrategyLoading" class="settings-loading">正在加载检索源配置...</div>
-            <div v-else-if="!strategyConfigs.length" class="settings-empty">暂无检索源配置</div>
-            <div v-else class="strategy-table-wrapper">
-              <table class="strategy-table">
-                <thead>
-                  <tr>
-                    <th>来源</th>
-                    <th>名称</th>
-                    <th>总数量</th>
-                    <th>启用</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="config in strategyConfigs" :key="config.source">
-                    <td class="strategy-source">{{ config.source }}</td>
-                    <td class="strategy-name">{{ config.name }}</td>
-                    <td>
-                      <input
-                        v-model.number="config.totalCount"
-                        class="settings-input small"
-                        type="number"
-                        min="1"
-                        max="2000"
-                      />
-                    </td>
-                    <td>
-                      <label class="settings-switch">
-                        <input v-model="config.enabled" type="checkbox" />
-                        <span></span>
-                      </label>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div class="settings-actions">
-              <button
-                class="settings-primary-btn"
-                type="button"
-                :disabled="isStrategySaving"
-                @click="saveStrategyConfig"
-              >
-                {{ isStrategySaving ? '保存中...' : '整体保存' }}
-              </button>
-            </div>
-          </div>
-
-          <div v-else class="settings-panel">
-            <div class="settings-panel-title">
-              <h3>旧检索 AI 配置</h3>
-              <button
-                class="settings-secondary-btn"
-                type="button"
-                :disabled="isAiLoading"
-                @click="loadAiConfig"
-              >
-                刷新
-              </button>
-            </div>
-
-            <div v-if="isAiLoading" class="settings-loading">正在加载 AI 配置...</div>
-            <div v-else class="ai-settings-grid">
-              <label class="settings-field">
-                <span>Provider</span>
-                <select v-model="aiConfig.provider" class="settings-input">
-                  <option value="DASHSCOPE">DASHSCOPE</option>
-                  <option value="OPENAI_COMPATIBLE">OPENAI_COMPATIBLE</option>
-                </select>
-              </label>
-              <label class="settings-field">
-                <span>Base URL</span>
-                <input
-                  v-model="aiConfig.baseUrl"
-                  class="settings-input"
-                  type="text"
-                  placeholder="https://api.deepseek.com"
-                />
-              </label>
-              <label class="settings-field">
-                <span>模型</span>
-                <input
-                  v-model="aiConfig.model"
-                  class="settings-input"
-                  type="text"
-                  placeholder="deepseek-chat"
-                />
-              </label>
-              <label class="settings-field settings-field-full">
-                <span>API Key</span>
-                <input
-                  v-model="aiApiKeyInput"
-                  class="settings-input"
-                  type="password"
-                  placeholder="sk-xxxx"
-                  autocomplete="off"
-                />
-              </label>
-              <label class="settings-field">
-                <span>Temperature</span>
-                <input
-                  v-model.number="aiConfig.temperature"
-                  class="settings-input"
-                  type="number"
-                  min="0"
-                  max="2"
-                  step="0.1"
-                />
-              </label>
-              <label class="settings-field">
-                <span>Max Tokens</span>
-                <input
-                  v-model.number="aiConfig.maxTokens"
-                  class="settings-input"
-                  type="number"
-                  min="1"
-                />
-              </label>
-              <label class="settings-field">
-                <span>Timeout(ms)</span>
-                <input
-                  v-model.number="aiConfig.timeoutMs"
-                  class="settings-input"
-                  type="number"
-                  min="1000"
-                />
-              </label>
-            </div>
-
-            <div class="settings-actions">
-              <button
-                class="settings-primary-btn"
-                type="button"
-                :disabled="isAiSaving"
-                @click="saveAiConfig"
-              >
-                {{ isAiSaving ? '保存中...' : '保存 AI 设置' }}
-              </button>
-            </div>
-          </div>
+          <LlmProfilesPanel v-else @updated="handleLlmProfilesUpdated" />
         </div>
       </section>
     </transition>
@@ -432,12 +343,11 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import AgentChatPanel from '@/components/AgentChatPanel.vue'
-import {
-  apiService,
-  type AiConfig,
-  type QueryUnderstanding,
-  type SearchStrategyConfig
-} from '@/services/api'
+import LlmProfilesPanel from '@/components/LlmProfilesPanel.vue'
+import SourceLimitsPanel from '@/components/SourceLimitsPanel.vue'
+import { agentService, type AgentConversationSummary } from '@/services/agentService'
+import { apiService, type QueryUnderstanding } from '@/services/api'
+import { llmProfileService, type LlmProfile } from '@/services/llmProfileService'
 import {
   DEFAULT_VISIBLE_PAPER_TAGS,
   PAPER_TAG_POOL,
@@ -446,157 +356,151 @@ import {
   type PaperTagValue,
   type SourceTag
 } from '@/constants/searchTagMappings'
+import { useAgentChatStore } from '@/stores/agentChat'
 
 // 路由
 const router = useRouter()
+
+const agentChatStore = useAgentChatStore()
+const conversations = ref<AgentConversationSummary[]>([])
+const selectedConversationId = ref<string | null>(null)
+const isConversationsLoading = ref(false)
+const isConversationLoading = ref(false)
+const conversationLoadError = ref('')
+const isAgentRunning = ref(false)
+const isConversationSidebarOpen = ref(false)
+const isConversationSidebarResizing = ref(false)
+const CONVERSATION_SIDEBAR_DEFAULT_WIDTH = 248
+const CONVERSATION_SIDEBAR_MIN_WIDTH = 220
+const CONVERSATION_SIDEBAR_MAX_WIDTH = 420
+const CONVERSATION_SIDEBAR_OUTER_GAP = 36
+const conversationSidebarWidth = ref(CONVERSATION_SIDEBAR_DEFAULT_WIDTH)
+
+const getConversationSidebarBounds = () => {
+  const viewportMaxWidth = Math.max(280, viewportWidth.value - CONVERSATION_SIDEBAR_OUTER_GAP)
+  const maxWidth = Math.min(CONVERSATION_SIDEBAR_MAX_WIDTH, viewportMaxWidth)
+  const minWidth = Math.min(CONVERSATION_SIDEBAR_MIN_WIDTH, maxWidth)
+
+  return { minWidth, maxWidth }
+}
+
+const clampConversationSidebarWidth = (width: number) => {
+  const { minWidth, maxWidth } = getConversationSidebarBounds()
+  return Math.min(maxWidth, Math.max(minWidth, width))
+}
+
+const conversationSidebarStyle = computed(() => ({
+  width: `${clampConversationSidebarWidth(conversationSidebarWidth.value)}px`
+}))
+
+const fetchConversations = async () => {
+  try {
+    isConversationsLoading.value = true
+    conversationLoadError.value = ''
+    const response = await agentService.getConversations(30)
+    if (response.code !== 0 || !response.success) {
+      throw new Error(response.message || '加载历史会话失败')
+    }
+    conversations.value = response.data.items
+  } catch (error) {
+    console.error('加载历史会话失败:', error)
+    conversationLoadError.value = error instanceof Error ? error.message : '加载历史会话失败'
+  } finally {
+    isConversationsLoading.value = false
+  }
+}
+
+const startNewConversation = () => {
+  if (isAgentRunning.value) return
+  agentChatStore.resetConversation()
+  selectedConversationId.value = null
+  isConversationSidebarOpen.value = false
+}
+
+const startConversationSidebarResize = (event: PointerEvent) => {
+  if (window.innerWidth <= 1100) return
+  isConversationSidebarResizing.value = true
+  conversationSidebarWidth.value = clampConversationSidebarWidth(event.clientX - 18)
+  document.body.style.userSelect = 'none'
+  document.body.style.cursor = 'col-resize'
+  event.preventDefault()
+}
+
+const handleConversationSidebarResize = (event: PointerEvent) => {
+  if (!isConversationSidebarResizing.value) return
+  conversationSidebarWidth.value = clampConversationSidebarWidth(event.clientX - 18)
+}
+
+const stopConversationSidebarResize = () => {
+  if (!isConversationSidebarResizing.value) return
+  isConversationSidebarResizing.value = false
+  document.body.style.userSelect = ''
+  document.body.style.cursor = ''
+}
+
+const openConversation = async (conversationId: string) => {
+  if (isAgentRunning.value || isConversationLoading.value) return
+
+  try {
+    isConversationLoading.value = true
+    conversationLoadError.value = ''
+    const response = await agentService.getConversationMessages(conversationId)
+    if (response.code !== 0 || !response.success) {
+      throw new Error(response.message || '加载历史消息失败')
+    }
+    agentChatStore.loadConversation(response.data.items)
+    selectedConversationId.value = response.data.conversation_id
+    isConversationSidebarOpen.value = false
+  } catch (error) {
+    console.error('加载历史消息失败:', error)
+    conversationLoadError.value = error instanceof Error ? error.message : '加载历史消息失败'
+  } finally {
+    isConversationLoading.value = false
+  }
+}
+
+const handleConversationUpdated = async (conversationId: string) => {
+  selectedConversationId.value = conversationId
+  await fetchConversations()
+}
+
+const handleAgentCompleted = async () => {
+  await fetchRecentSearches()
+}
 
 // 设置弹窗状态
 const hasConversation = ref(false)
 
 const isSettingsOpen = ref(false)
-const activeSettingsTab = ref<'strategy' | 'ai'>('strategy')
-const strategyConfigs = ref<SearchStrategyConfig[]>([])
-const isStrategyLoading = ref(false)
-const isStrategySaving = ref(false)
-const isAiLoading = ref(false)
-const isAiSaving = ref(false)
-const settingsMessage = ref('')
-const settingsMessageType = ref<'success' | 'error'>('success')
-const aiConfig = ref<AiConfig>({
-  provider: 'DASHSCOPE',
-  baseUrl: '',
-  model: '',
-  apiKey: '',
-  temperature: 0.3,
-  maxTokens: 2048,
-  timeoutMs: 60000
-})
+const activeSettingsTab = ref<'source-limits' | 'llm'>('source-limits')
+const llmProfiles = ref<LlmProfile[]>([])
 
-const aiApiKeyInput = computed({
-  get: () => aiConfig.value.apiKey,
-  set: (value: string) => {
-    aiConfig.value.apiKey = value
-  }
-})
-
-const showSettingsMessage = (message: string, type: 'success' | 'error' = 'success') => {
-  settingsMessage.value = message
-  settingsMessageType.value = type
-}
-
-const normalizeStrategyTotalCount = (value: number) => {
-  const numericValue = Number(value)
-  if (!Number.isFinite(numericValue)) return 1
-  return Math.min(2000, Math.max(1, Math.trunc(numericValue)))
-}
-
-const normalizeStrategyConfig = (item: SearchStrategyConfig): SearchStrategyConfig => ({
-  source: item.source,
-  name: item.name,
-  totalCount: normalizeStrategyTotalCount(item.totalCount),
-  enabled: item.enabled
-})
-
-const normalizeAiConfig = (config: Partial<AiConfig>): AiConfig => ({
-  provider: config.provider ?? 'DASHSCOPE',
-  baseUrl: config.baseUrl ?? '',
-  model: config.model ?? '',
-  apiKey: config.apiKey ?? '',
-  temperature: config.temperature ?? 0.3,
-  maxTokens: config.maxTokens ?? 2048,
-  timeoutMs: config.timeoutMs ?? 60000
-})
-
-const loadStrategyConfig = async () => {
+const loadLlmProfiles = async () => {
   try {
-    isStrategyLoading.value = true
-    const response = await apiService.getSearchStrategyConfig()
-    if (response.code === 0 && response.success) {
-      strategyConfigs.value = response.data.map((item) => normalizeStrategyConfig(item))
-    } else {
-      showSettingsMessage(response.message || '检索源配置加载失败', 'error')
-    }
-  } catch (error) {
-    console.error('加载检索源配置失败:', error)
-    showSettingsMessage('检索源配置加载失败', 'error')
-  } finally {
-    isStrategyLoading.value = false
+    llmProfiles.value = await llmProfileService.list()
+  } catch {
+    llmProfiles.value = []
   }
 }
 
-const loadAiConfig = async () => {
-  try {
-    isAiLoading.value = true
-    const response = await apiService.getAiConfig()
-    if (response.code === 0 && response.data) {
-      aiConfig.value = normalizeAiConfig(response.data)
-    } else {
-      showSettingsMessage(response.message || 'AI 配置加载失败', 'error')
-    }
-  } catch (error) {
-    console.error('加载 AI 配置失败:', error)
-    showSettingsMessage('AI 配置加载失败', 'error')
-  } finally {
-    isAiLoading.value = false
-  }
+const handleLlmProfilesUpdated = (profiles: LlmProfile[]) => {
+  llmProfiles.value = profiles
 }
 
 const openTasksView = () => {
   router.push({ name: 'tasks' })
 }
 
-const openSettingsModal = async () => {
-  isSettingsOpen.value = true
-  settingsMessage.value = ''
+const openReviewTasksView = () => {
+  router.push({ name: 'review-tasks' })
+}
 
-  if (!strategyConfigs.value.length) {
-    await loadStrategyConfig()
-  }
-  if (!aiConfig.value.baseUrl && !aiConfig.value.model) {
-    await loadAiConfig()
-  }
+const openSettingsModal = () => {
+  isSettingsOpen.value = true
 }
 
 const closeSettingsModal = () => {
   isSettingsOpen.value = false
-}
-
-const saveStrategyConfig = async () => {
-  try {
-    isStrategySaving.value = true
-    settingsMessage.value = ''
-    const response = await apiService.saveSearchStrategyConfig(
-      strategyConfigs.value.map((item) => normalizeStrategyConfig(item))
-    )
-    if (response.code === 0 && response.data === true) {
-      showSettingsMessage('检索源配置保存成功')
-    } else {
-      showSettingsMessage(response.message || '检索源配置保存失败', 'error')
-    }
-  } catch (error) {
-    console.error('保存检索源配置失败:', error)
-    showSettingsMessage('检索源配置保存失败', 'error')
-  } finally {
-    isStrategySaving.value = false
-  }
-}
-
-const saveAiConfig = async () => {
-  try {
-    isAiSaving.value = true
-    settingsMessage.value = ''
-    const response = await apiService.saveAiConfig(normalizeAiConfig(aiConfig.value))
-    if (response.code === 0 && response.data === true) {
-      showSettingsMessage('AI 配置保存成功')
-    } else {
-      showSettingsMessage(response.message || 'AI 配置保存失败', 'error')
-    }
-  } catch (error) {
-    console.error('保存 AI 配置失败:', error)
-    showSettingsMessage('AI 配置保存失败', 'error')
-  } finally {
-    isAiSaving.value = false
-  }
 }
 
 // 最近搜索状态
@@ -709,6 +613,7 @@ const stopRecentDrawerResize = () => {
 const handleViewportResize = () => {
   viewportWidth.value = window.innerWidth
   recentDrawerWidth.value = clampRecentDrawerWidth(recentDrawerWidth.value)
+  conversationSidebarWidth.value = clampConversationSidebarWidth(conversationSidebarWidth.value)
 }
 
 // 搜索相关状态
@@ -1009,8 +914,11 @@ onMounted(() => {
   document.addEventListener('click', handleClickOutside)
   window.addEventListener('resize', handleViewportResize)
   window.addEventListener('pointermove', handleRecentDrawerResize)
+  window.addEventListener('pointermove', handleConversationSidebarResize)
   window.addEventListener('pointerup', stopRecentDrawerResize)
+  window.addEventListener('pointerup', stopConversationSidebarResize)
   window.addEventListener('pointercancel', stopRecentDrawerResize)
+  window.addEventListener('pointercancel', stopConversationSidebarResize)
   nextTick(() => {
     handleViewportResize()
     updateSourceSelectWidth()
@@ -1021,9 +929,13 @@ onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
   window.removeEventListener('resize', handleViewportResize)
   window.removeEventListener('pointermove', handleRecentDrawerResize)
+  window.removeEventListener('pointermove', handleConversationSidebarResize)
   window.removeEventListener('pointerup', stopRecentDrawerResize)
+  window.removeEventListener('pointerup', stopConversationSidebarResize)
   window.removeEventListener('pointercancel', stopRecentDrawerResize)
+  window.removeEventListener('pointercancel', stopConversationSidebarResize)
   stopRecentDrawerResize()
+  stopConversationSidebarResize()
   if (extractTimer) {
     clearTimeout(extractTimer)
   }
@@ -1121,6 +1033,8 @@ const handleRecentSearchClick = (search: RecentSearchListItem) => {
 // 组件挂载时获取最近搜索
 onMounted(() => {
   fetchRecentSearches()
+  fetchConversations()
+  loadLlmProfiles()
 })
 
 // 组件卸载时清理定时器
@@ -1146,10 +1060,8 @@ onUnmounted(() => {
 }
 
 .settings-trigger,
-.tasks-trigger {
-  position: fixed;
-  top: 24px;
-  z-index: 30;
+.tasks-trigger,
+.review-tasks-trigger {
   border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 999px;
   padding: 10px 18px;
@@ -1164,15 +1076,24 @@ onUnmounted(() => {
 }
 
 .settings-trigger {
+  position: fixed;
+  top: 24px;
+  z-index: 30;
   right: 28px;
 }
 
-.tasks-trigger {
+.task-entry-actions {
+  position: fixed;
+  top: 24px;
+  z-index: 30;
   right: 110px;
+  display: flex;
+  gap: 10px;
 }
 
 .settings-trigger:hover,
-.tasks-trigger:hover {
+.tasks-trigger:hover,
+.review-tasks-trigger:hover {
   color: #1890ff;
   transform: translateY(-1px);
   box-shadow: 0 18px 42px rgba(101, 119, 187, 0.24);
@@ -1271,210 +1192,11 @@ onUnmounted(() => {
   color: #ffffff;
 }
 
-.settings-message {
-  margin: 14px 28px 0;
-  padding: 10px 14px;
-  border-radius: 12px;
-  font-size: 14px;
-  text-align: left;
-}
-
-.settings-message-success {
-  color: #047857;
-  background: rgba(16, 185, 129, 0.12);
-}
-
-.settings-message-error {
-  color: #b91c1c;
-  background: rgba(239, 68, 68, 0.12);
-}
-
 .settings-body {
   flex: 1;
   min-height: 0;
   overflow: auto;
   padding: 18px 28px 28px;
-}
-
-.settings-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.settings-panel-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.settings-panel-title h3 {
-  margin: 0;
-  color: #334155;
-  font-size: 18px;
-}
-
-.settings-secondary-btn,
-.settings-primary-btn {
-  border: none;
-  border-radius: 999px;
-  font-weight: 800;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.settings-secondary-btn {
-  padding: 8px 14px;
-  color: #475569;
-  background: rgba(226, 232, 240, 0.78);
-}
-
-.settings-primary-btn {
-  padding: 11px 22px;
-  color: #ffffff;
-  background: linear-gradient(135deg, #667eea 0%, #1890ff 100%);
-  box-shadow: 0 12px 28px rgba(24, 144, 255, 0.24);
-}
-
-.settings-secondary-btn:disabled,
-.settings-primary-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.settings-loading,
-.settings-empty {
-  padding: 42px 20px;
-  border-radius: 18px;
-  color: #64748b;
-  background: rgba(248, 250, 252, 0.82);
-  text-align: center;
-}
-
-.strategy-table-wrapper {
-  overflow: auto;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.78);
-}
-
-.strategy-table {
-  width: 100%;
-  border-collapse: collapse;
-  min-width: 820px;
-}
-
-.strategy-table th,
-.strategy-table td {
-  padding: 12px 10px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
-  color: #334155;
-  font-size: 13px;
-  text-align: left;
-  vertical-align: middle;
-}
-
-.strategy-table th {
-  color: #64748b;
-  font-weight: 800;
-  background: rgba(248, 250, 252, 0.86);
-}
-
-.strategy-table tr:last-child td {
-  border-bottom: none;
-}
-
-.strategy-source,
-.strategy-name {
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.settings-input {
-  width: 100%;
-  height: 38px;
-  border: 1px solid rgba(148, 163, 184, 0.32);
-  border-radius: 10px;
-  padding: 0 12px;
-  color: #1f2937;
-  background: rgba(255, 255, 255, 0.92);
-  outline: none;
-  transition: all 0.2s ease;
-}
-
-.settings-input.small {
-  width: 96px;
-}
-
-.settings-input:focus {
-  border-color: #1890ff;
-  box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.1);
-}
-
-.settings-switch {
-  display: inline-flex;
-  align-items: center;
-  cursor: pointer;
-}
-
-.settings-switch input {
-  display: none;
-}
-
-.settings-switch span {
-  position: relative;
-  width: 42px;
-  height: 24px;
-  border-radius: 999px;
-  background: #cbd5e1;
-  transition: all 0.2s ease;
-}
-
-.settings-switch span::after {
-  content: '';
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.2);
-  transition: all 0.2s ease;
-}
-
-.settings-switch input:checked + span {
-  background: #1890ff;
-}
-
-.settings-switch input:checked + span::after {
-  transform: translateX(18px);
-}
-
-.ai-settings-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.settings-field {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  color: #475569;
-  font-size: 13px;
-  font-weight: 800;
-  text-align: left;
-}
-
-.settings-field-full {
-  grid-column: 1 / -1;
-}
-
-.settings-actions {
-  display: flex;
-  justify-content: flex-end;
 }
 
 .settings-fade-enter-active,
@@ -1571,6 +1293,252 @@ onUnmounted(() => {
   position: relative;
   z-index: 1;
   gap: 25px;
+}
+
+.conversation-sidebar {
+  position: fixed;
+  isolation: isolate;
+  z-index: 20;
+  top: 18px;
+  bottom: 18px;
+  left: 18px;
+  display: flex;
+  width: 248px;
+  flex-direction: column;
+  padding: 16px 12px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.76);
+  border-radius: 18px;
+  background: rgba(246, 249, 255, 0.78);
+  box-shadow: 0 18px 42px rgba(69, 86, 137, 0.14);
+  backdrop-filter: blur(18px);
+}
+
+.conversation-sidebar-resize-handle {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  right: -7px;
+  bottom: 0;
+  width: 14px;
+  cursor: col-resize;
+}
+
+.conversation-sidebar-resize-handle::after {
+  position: absolute;
+  top: 50%;
+  left: 5px;
+  width: 3px;
+  height: 38px;
+  border-radius: 999px;
+  content: '';
+  background: rgba(82, 104, 188, 0.46);
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 0.16s ease;
+}
+
+.conversation-sidebar:hover .conversation-sidebar-resize-handle::after,
+.conversation-sidebar-resize-handle-active::after {
+  opacity: 1;
+}
+
+.conversation-sidebar-resizing {
+  user-select: none;
+}
+
+.conversation-sidebar-trigger {
+  display: none;
+}
+
+.conversation-sidebar-brand {
+  padding: 2px 8px 14px;
+  color: #394968;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.new-conversation-button {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid rgba(82, 104, 188, 0.34);
+  border-radius: 12px;
+  color: #3d5195;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.88);
+  transition: transform 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.new-conversation-button span {
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.new-conversation-button:hover:not(:disabled) {
+  background: #eef2ff;
+  box-shadow: 0 8px 18px rgba(82, 104, 188, 0.16);
+  transform: translateY(-1px);
+}
+
+.new-conversation-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.new-conversation-button:disabled,
+.conversation-row:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.conversation-sidebar-heading {
+  padding: 24px 8px 10px;
+  color: #7b879e;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.conversation-sidebar-list {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 2px 4px;
+}
+
+.conversation-row {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 3px;
+  padding: 10px 10px 9px;
+  border: 0;
+  border-radius: 10px;
+  color: #4c5d7e;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+
+.conversation-row:hover:not(:disabled) {
+  background: rgba(224, 231, 255, 0.68);
+}
+
+.conversation-row-active {
+  color: #31447f;
+  background: rgba(211, 221, 255, 0.78);
+}
+
+.conversation-row-title,
+.conversation-row-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-row-title {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.conversation-row-preview {
+  color: #8a96ab;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.conversation-empty-state,
+.conversation-load-error {
+  margin: 8px 7px;
+  color: #8a96ab;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.conversation-load-error {
+  color: #a34d62;
+}
+
+.conversation-load-error button {
+  padding: 0;
+  border: 0;
+  color: #5268bc;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  background: transparent;
+}
+
+.conversation-loading-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 6px;
+}
+
+.conversation-loading-row {
+  height: 46px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, rgba(222, 228, 241, 0.5), rgba(244, 247, 253, 0.88), rgba(222, 228, 241, 0.5));
+  background-size: 200% 100%;
+  animation: conversation-loading 1.35s ease-in-out infinite;
+}
+
+@keyframes conversation-loading {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (min-width: 1101px) {
+  .home-container {
+    transform: translateX(88px);
+  }
+}
+
+@media (max-width: 1100px) {
+  .conversation-sidebar {
+    z-index: 90;
+    transform: translateX(calc(-100% - 24px));
+    transition: transform 0.2s ease;
+  }
+
+  .conversation-sidebar-mobile-open {
+    transform: translateX(0);
+  }
+
+  .conversation-sidebar-resize-handle {
+    display: none;
+  }
+
+  .conversation-sidebar-trigger {
+    position: fixed;
+    z-index: 100;
+    top: 22px;
+    left: 22px;
+    display: block;
+    padding: 9px 13px;
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    border-radius: 999px;
+    color: #4f5f82;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.82);
+    box-shadow: 0 12px 28px rgba(101, 119, 187, 0.16);
+    backdrop-filter: blur(16px);
+  }
+
+  .conversation-sidebar-trigger:active {
+    transform: translateY(1px);
+  }
 }
 
 .main-title {
@@ -2495,6 +2463,29 @@ onUnmounted(() => {
 }
 
 @media (max-width: 768px) {
+  .conversation-sidebar-trigger {
+    top: 12px;
+    left: 12px;
+    padding: 8px 11px;
+    font-size: 12px;
+  }
+
+  .settings-trigger {
+    top: 12px;
+    right: 12px;
+  }
+
+  .task-entry-actions {
+    top: 60px;
+    right: 12px;
+  }
+
+  .tasks-trigger,
+  .review-tasks-trigger {
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+
   .main-title {
     font-size: 28px;
     margin: 0 0 12px 0;
