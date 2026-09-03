@@ -12,12 +12,13 @@
 
       <!-- AI 对话区域 -->
       <div class="agent-chat-shell">
-        <AgentChatPanel
-          :current-filters="{
-            yearTag: filterYear,
-            paperTags: selectedPaperTags,
-            sourceTags: selectedSources
-          }"
+          <AgentChatPanel
+            :current-filters="{
+              yearTag: filterYear,
+              paperTags: selectedPaperTags,
+              sourceTags: selectedSources
+            }"
+            :llm-profiles="llmProfiles"
           @message-sent="handleAgentMessage"
           @restore-filters="restoreAgentFilters"
           @conversation-changed="hasConversation = $event"
@@ -243,184 +244,26 @@
         <div class="settings-tabs">
           <button
             class="settings-tab"
-            :class="{ active: activeSettingsTab === 'strategy' }"
+            :class="{ active: activeSettingsTab === 'source-limits' }"
             type="button"
-            @click="activeSettingsTab = 'strategy'"
+            @click="activeSettingsTab = 'source-limits'"
           >
-            检索源
+            来源上限
           </button>
           <button
             class="settings-tab"
-            :class="{ active: activeSettingsTab === 'ai' }"
+            :class="{ active: activeSettingsTab === 'llm' }"
             type="button"
-            @click="activeSettingsTab = 'ai'"
+            @click="activeSettingsTab = 'llm'"
           >
-            旧检索 AI 设置
+            LLM 配置档案
           </button>
         </div>
 
-        <div
-          v-if="settingsMessage"
-          class="settings-message"
-          :class="`settings-message-${settingsMessageType}`"
-        >
-          {{ settingsMessage }}
-        </div>
-
         <div class="settings-body">
-          <div v-if="activeSettingsTab === 'strategy'" class="settings-panel">
-            <div class="settings-panel-title">
-              <h3>检索源策略</h3>
-              <button
-                class="settings-secondary-btn"
-                type="button"
-                :disabled="isStrategyLoading"
-                @click="loadStrategyConfig"
-              >
-                刷新
-              </button>
-            </div>
+          <SourceLimitsPanel v-if="activeSettingsTab === 'source-limits'" />
 
-            <div v-if="isStrategyLoading" class="settings-loading">正在加载检索源配置...</div>
-            <div v-else-if="!strategyConfigs.length" class="settings-empty">暂无检索源配置</div>
-            <div v-else class="strategy-table-wrapper">
-              <table class="strategy-table">
-                <thead>
-                  <tr>
-                    <th>来源</th>
-                    <th>名称</th>
-                    <th>总数量</th>
-                    <th>启用</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="config in strategyConfigs" :key="config.source">
-                    <td class="strategy-source">{{ config.source }}</td>
-                    <td class="strategy-name">{{ config.name }}</td>
-                    <td>
-                      <input
-                        v-model.number="config.totalCount"
-                        class="settings-input small"
-                        type="number"
-                        min="1"
-                        max="2000"
-                      />
-                    </td>
-                    <td>
-                      <label class="settings-switch">
-                        <input v-model="config.enabled" type="checkbox" />
-                        <span></span>
-                      </label>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div class="settings-actions">
-              <button
-                class="settings-primary-btn"
-                type="button"
-                :disabled="isStrategySaving"
-                @click="saveStrategyConfig"
-              >
-                {{ isStrategySaving ? '保存中...' : '整体保存' }}
-              </button>
-            </div>
-          </div>
-
-          <div v-else class="settings-panel">
-            <div class="settings-panel-title">
-              <h3>旧检索 AI 配置</h3>
-              <button
-                class="settings-secondary-btn"
-                type="button"
-                :disabled="isAiLoading"
-                @click="loadAiConfig"
-              >
-                刷新
-              </button>
-            </div>
-
-            <div v-if="isAiLoading" class="settings-loading">正在加载 AI 配置...</div>
-            <div v-else class="ai-settings-grid">
-              <label class="settings-field">
-                <span>Provider</span>
-                <select v-model="aiConfig.provider" class="settings-input">
-                  <option value="DASHSCOPE">DASHSCOPE</option>
-                  <option value="OPENAI_COMPATIBLE">OPENAI_COMPATIBLE</option>
-                </select>
-              </label>
-              <label class="settings-field">
-                <span>Base URL</span>
-                <input
-                  v-model="aiConfig.baseUrl"
-                  class="settings-input"
-                  type="text"
-                  placeholder="https://api.deepseek.com"
-                />
-              </label>
-              <label class="settings-field">
-                <span>模型</span>
-                <input
-                  v-model="aiConfig.model"
-                  class="settings-input"
-                  type="text"
-                  placeholder="deepseek-chat"
-                />
-              </label>
-              <label class="settings-field settings-field-full">
-                <span>API Key</span>
-                <input
-                  v-model="aiApiKeyInput"
-                  class="settings-input"
-                  type="password"
-                  placeholder="sk-xxxx"
-                  autocomplete="off"
-                />
-              </label>
-              <label class="settings-field">
-                <span>Temperature</span>
-                <input
-                  v-model.number="aiConfig.temperature"
-                  class="settings-input"
-                  type="number"
-                  min="0"
-                  max="2"
-                  step="0.1"
-                />
-              </label>
-              <label class="settings-field">
-                <span>Max Tokens</span>
-                <input
-                  v-model.number="aiConfig.maxTokens"
-                  class="settings-input"
-                  type="number"
-                  min="1"
-                />
-              </label>
-              <label class="settings-field">
-                <span>Timeout(ms)</span>
-                <input
-                  v-model.number="aiConfig.timeoutMs"
-                  class="settings-input"
-                  type="number"
-                  min="1000"
-                />
-              </label>
-            </div>
-
-            <div class="settings-actions">
-              <button
-                class="settings-primary-btn"
-                type="button"
-                :disabled="isAiSaving"
-                @click="saveAiConfig"
-              >
-                {{ isAiSaving ? '保存中...' : '保存 AI 设置' }}
-              </button>
-            </div>
-          </div>
+          <LlmProfilesPanel v-else @updated="handleLlmProfilesUpdated" />
         </div>
       </section>
     </transition>
@@ -500,13 +343,11 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import AgentChatPanel from '@/components/AgentChatPanel.vue'
+import LlmProfilesPanel from '@/components/LlmProfilesPanel.vue'
+import SourceLimitsPanel from '@/components/SourceLimitsPanel.vue'
 import { agentService, type AgentConversationSummary } from '@/services/agentService'
-import {
-  apiService,
-  type AiConfig,
-  type QueryUnderstanding,
-  type SearchStrategyConfig
-} from '@/services/api'
+import { apiService, type QueryUnderstanding } from '@/services/api'
+import { llmProfileService, type LlmProfile } from '@/services/llmProfileService'
 import {
   DEFAULT_VISIBLE_PAPER_TAGS,
   PAPER_TAG_POOL,
@@ -631,91 +472,19 @@ const handleAgentCompleted = async () => {
 const hasConversation = ref(false)
 
 const isSettingsOpen = ref(false)
-const activeSettingsTab = ref<'strategy' | 'ai'>('strategy')
-const strategyConfigs = ref<SearchStrategyConfig[]>([])
-const isStrategyLoading = ref(false)
-const isStrategySaving = ref(false)
-const isAiLoading = ref(false)
-const isAiSaving = ref(false)
-const settingsMessage = ref('')
-const settingsMessageType = ref<'success' | 'error'>('success')
-const aiConfig = ref<AiConfig>({
-  provider: 'DASHSCOPE',
-  baseUrl: '',
-  model: '',
-  apiKey: '',
-  temperature: 0.3,
-  maxTokens: 2048,
-  timeoutMs: 60000
-})
+const activeSettingsTab = ref<'source-limits' | 'llm'>('source-limits')
+const llmProfiles = ref<LlmProfile[]>([])
 
-const aiApiKeyInput = computed({
-  get: () => aiConfig.value.apiKey,
-  set: (value: string) => {
-    aiConfig.value.apiKey = value
-  }
-})
-
-const showSettingsMessage = (message: string, type: 'success' | 'error' = 'success') => {
-  settingsMessage.value = message
-  settingsMessageType.value = type
-}
-
-const normalizeStrategyTotalCount = (value: number) => {
-  const numericValue = Number(value)
-  if (!Number.isFinite(numericValue)) return 1
-  return Math.min(2000, Math.max(1, Math.trunc(numericValue)))
-}
-
-const normalizeStrategyConfig = (item: SearchStrategyConfig): SearchStrategyConfig => ({
-  source: item.source,
-  name: item.name,
-  totalCount: normalizeStrategyTotalCount(item.totalCount),
-  enabled: item.enabled
-})
-
-const normalizeAiConfig = (config: Partial<AiConfig>): AiConfig => ({
-  provider: config.provider ?? 'DASHSCOPE',
-  baseUrl: config.baseUrl ?? '',
-  model: config.model ?? '',
-  apiKey: config.apiKey ?? '',
-  temperature: config.temperature ?? 0.3,
-  maxTokens: config.maxTokens ?? 2048,
-  timeoutMs: config.timeoutMs ?? 60000
-})
-
-const loadStrategyConfig = async () => {
+const loadLlmProfiles = async () => {
   try {
-    isStrategyLoading.value = true
-    const response = await apiService.getSearchStrategyConfig()
-    if (response.code === 0 && response.success) {
-      strategyConfigs.value = response.data.map((item) => normalizeStrategyConfig(item))
-    } else {
-      showSettingsMessage(response.message || '检索源配置加载失败', 'error')
-    }
-  } catch (error) {
-    console.error('加载检索源配置失败:', error)
-    showSettingsMessage('检索源配置加载失败', 'error')
-  } finally {
-    isStrategyLoading.value = false
+    llmProfiles.value = await llmProfileService.list()
+  } catch {
+    llmProfiles.value = []
   }
 }
 
-const loadAiConfig = async () => {
-  try {
-    isAiLoading.value = true
-    const response = await apiService.getAiConfig()
-    if (response.code === 0 && response.data) {
-      aiConfig.value = normalizeAiConfig(response.data)
-    } else {
-      showSettingsMessage(response.message || 'AI 配置加载失败', 'error')
-    }
-  } catch (error) {
-    console.error('加载 AI 配置失败:', error)
-    showSettingsMessage('AI 配置加载失败', 'error')
-  } finally {
-    isAiLoading.value = false
-  }
+const handleLlmProfilesUpdated = (profiles: LlmProfile[]) => {
+  llmProfiles.value = profiles
 }
 
 const openTasksView = () => {
@@ -726,58 +495,12 @@ const openReviewTasksView = () => {
   router.push({ name: 'review-tasks' })
 }
 
-const openSettingsModal = async () => {
+const openSettingsModal = () => {
   isSettingsOpen.value = true
-  settingsMessage.value = ''
-
-  if (!strategyConfigs.value.length) {
-    await loadStrategyConfig()
-  }
-  if (!aiConfig.value.baseUrl && !aiConfig.value.model) {
-    await loadAiConfig()
-  }
 }
 
 const closeSettingsModal = () => {
   isSettingsOpen.value = false
-}
-
-const saveStrategyConfig = async () => {
-  try {
-    isStrategySaving.value = true
-    settingsMessage.value = ''
-    const response = await apiService.saveSearchStrategyConfig(
-      strategyConfigs.value.map((item) => normalizeStrategyConfig(item))
-    )
-    if (response.code === 0 && response.data === true) {
-      showSettingsMessage('检索源配置保存成功')
-    } else {
-      showSettingsMessage(response.message || '检索源配置保存失败', 'error')
-    }
-  } catch (error) {
-    console.error('保存检索源配置失败:', error)
-    showSettingsMessage('检索源配置保存失败', 'error')
-  } finally {
-    isStrategySaving.value = false
-  }
-}
-
-const saveAiConfig = async () => {
-  try {
-    isAiSaving.value = true
-    settingsMessage.value = ''
-    const response = await apiService.saveAiConfig(normalizeAiConfig(aiConfig.value))
-    if (response.code === 0 && response.data === true) {
-      showSettingsMessage('AI 配置保存成功')
-    } else {
-      showSettingsMessage(response.message || 'AI 配置保存失败', 'error')
-    }
-  } catch (error) {
-    console.error('保存 AI 配置失败:', error)
-    showSettingsMessage('AI 配置保存失败', 'error')
-  } finally {
-    isAiSaving.value = false
-  }
 }
 
 // 最近搜索状态
@@ -1311,6 +1034,7 @@ const handleRecentSearchClick = (search: RecentSearchListItem) => {
 onMounted(() => {
   fetchRecentSearches()
   fetchConversations()
+  loadLlmProfiles()
 })
 
 // 组件卸载时清理定时器
@@ -1468,210 +1192,11 @@ onUnmounted(() => {
   color: #ffffff;
 }
 
-.settings-message {
-  margin: 14px 28px 0;
-  padding: 10px 14px;
-  border-radius: 12px;
-  font-size: 14px;
-  text-align: left;
-}
-
-.settings-message-success {
-  color: #047857;
-  background: rgba(16, 185, 129, 0.12);
-}
-
-.settings-message-error {
-  color: #b91c1c;
-  background: rgba(239, 68, 68, 0.12);
-}
-
 .settings-body {
   flex: 1;
   min-height: 0;
   overflow: auto;
   padding: 18px 28px 28px;
-}
-
-.settings-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.settings-panel-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.settings-panel-title h3 {
-  margin: 0;
-  color: #334155;
-  font-size: 18px;
-}
-
-.settings-secondary-btn,
-.settings-primary-btn {
-  border: none;
-  border-radius: 999px;
-  font-weight: 800;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.settings-secondary-btn {
-  padding: 8px 14px;
-  color: #475569;
-  background: rgba(226, 232, 240, 0.78);
-}
-
-.settings-primary-btn {
-  padding: 11px 22px;
-  color: #ffffff;
-  background: linear-gradient(135deg, #667eea 0%, #1890ff 100%);
-  box-shadow: 0 12px 28px rgba(24, 144, 255, 0.24);
-}
-
-.settings-secondary-btn:disabled,
-.settings-primary-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.settings-loading,
-.settings-empty {
-  padding: 42px 20px;
-  border-radius: 18px;
-  color: #64748b;
-  background: rgba(248, 250, 252, 0.82);
-  text-align: center;
-}
-
-.strategy-table-wrapper {
-  overflow: auto;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.78);
-}
-
-.strategy-table {
-  width: 100%;
-  border-collapse: collapse;
-  min-width: 820px;
-}
-
-.strategy-table th,
-.strategy-table td {
-  padding: 12px 10px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
-  color: #334155;
-  font-size: 13px;
-  text-align: left;
-  vertical-align: middle;
-}
-
-.strategy-table th {
-  color: #64748b;
-  font-weight: 800;
-  background: rgba(248, 250, 252, 0.86);
-}
-
-.strategy-table tr:last-child td {
-  border-bottom: none;
-}
-
-.strategy-source,
-.strategy-name {
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.settings-input {
-  width: 100%;
-  height: 38px;
-  border: 1px solid rgba(148, 163, 184, 0.32);
-  border-radius: 10px;
-  padding: 0 12px;
-  color: #1f2937;
-  background: rgba(255, 255, 255, 0.92);
-  outline: none;
-  transition: all 0.2s ease;
-}
-
-.settings-input.small {
-  width: 96px;
-}
-
-.settings-input:focus {
-  border-color: #1890ff;
-  box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.1);
-}
-
-.settings-switch {
-  display: inline-flex;
-  align-items: center;
-  cursor: pointer;
-}
-
-.settings-switch input {
-  display: none;
-}
-
-.settings-switch span {
-  position: relative;
-  width: 42px;
-  height: 24px;
-  border-radius: 999px;
-  background: #cbd5e1;
-  transition: all 0.2s ease;
-}
-
-.settings-switch span::after {
-  content: '';
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.2);
-  transition: all 0.2s ease;
-}
-
-.settings-switch input:checked + span {
-  background: #1890ff;
-}
-
-.settings-switch input:checked + span::after {
-  transform: translateX(18px);
-}
-
-.ai-settings-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.settings-field {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  color: #475569;
-  font-size: 13px;
-  font-weight: 800;
-  text-align: left;
-}
-
-.settings-field-full {
-  grid-column: 1 / -1;
-}
-
-.settings-actions {
-  display: flex;
-  justify-content: flex-end;
 }
 
 .settings-fade-enter-active,

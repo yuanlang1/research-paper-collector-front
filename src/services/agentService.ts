@@ -8,6 +8,7 @@ export type AgentDecision = 'approved' | 'rejected'
 export interface AgentChatRequest {
   message: string
   conversation_id?: string | null
+  llm_profile_id?: number
 }
 
 export interface AgentResumeRequest {
@@ -108,6 +109,14 @@ export interface AgentCardSubagent {
   timeline?: AgentCardTimelineStep[]
 }
 
+export interface AgentCardMemory {
+  status: string
+  facts_count: number
+  episodes_count: number
+  start_seq?: number | null
+  end_seq?: number | null
+}
+
 export interface AgentExecutionCardMeta {
   status: string
   latency_ms?: number
@@ -117,6 +126,7 @@ export interface AgentExecutionCardMeta {
   reasoning?: AgentCardReasoning[]
   tools?: AgentCardTool[]
   subagents?: AgentCardSubagent[]
+  memory?: AgentCardMemory | null
   artifact_refs?: string[]
   pending_action?: AgentInterrupt | null
   error?: string | null

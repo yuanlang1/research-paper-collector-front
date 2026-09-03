@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import type { PaperTagValue, SourceTag } from '@/constants/searchTagMappings'
 import {
   agentService,
+  type AgentCardMemory,
   type AgentCardSubagent,
   type AgentCardTimelineStep,
   type AgentConversationMessage,
@@ -65,6 +66,14 @@ export interface HistoricalExecutionActivity {
   timelineExpanded?: boolean
 }
 
+export interface HistoricalMemoryRetrieval {
+  status: string
+  factsCount: number
+  episodesCount: number
+  startSeq: number | null
+  endSeq: number | null
+}
+
 export interface HistoricalExecutionCard {
   status: string
   latencyMs: number | null
@@ -73,6 +82,7 @@ export interface HistoricalExecutionCard {
   provider: string | null
   reasoning: string[]
   activities: HistoricalExecutionActivity[]
+  memory: HistoricalMemoryRetrieval | null
   artifacts: string[]
   pendingAction: AgentInterrupt | null
   error: string | null
@@ -108,6 +118,18 @@ function subagentDisplayName(subagent: AgentCardSubagent): string {
   if (subagent.name === 'paper_search_agent') return '论文检索子代理'
   if (subagent.name === 'task_review_agent') return '文献综述子代理'
   return asNullableString(subagent.name) || asNullableString(subagent.workflow) || '子代理'
+}
+
+function historicalMemoryRetrieval(memory: AgentCardMemory | null | undefined): HistoricalMemoryRetrieval | null {
+  if (!memory) return null
+
+  return {
+    status: memory.status,
+    factsCount: Math.max(0, Math.trunc(asNullableNumber(memory.facts_count) ?? 0)),
+    episodesCount: Math.max(0, Math.trunc(asNullableNumber(memory.episodes_count) ?? 0)),
+    startSeq: asNullableNumber(memory.start_seq),
+    endSeq: asNullableNumber(memory.end_seq)
+  }
 }
 
 function historicalExecutionCard(meta: AgentConversationMessageMeta | null): HistoricalExecutionCard | undefined {
@@ -163,6 +185,7 @@ function historicalExecutionCard(meta: AgentConversationMessageMeta | null): His
     activities: [...tools, ...subagents].sort((left, right) =>
       (left.startSeq ?? Number.MAX_SAFE_INTEGER) - (right.startSeq ?? Number.MAX_SAFE_INTEGER)
     ),
+    memory: historicalMemoryRetrieval(card.memory),
     artifacts: asStringList(card.artifact_refs),
     pendingAction: card.pending_action || null,
     error: asNullableString(card.error)
@@ -178,6 +201,7 @@ function liveExecutionCard(): HistoricalExecutionCard {
     provider: null,
     reasoning: [],
     activities: [],
+    memory: null,
     artifacts: [],
     pendingAction: null,
     error: null
@@ -191,6 +215,7 @@ export const useAgentChatStore = defineStore('agentChat', () => {
   const pendingConfirmation = ref<AgentInterrupt | null>(null)
   const confirmationComment = ref('')
   const activeRunId = ref<string | null>(null)
+  const selectedLlmProfileId = ref<number | null>(null)
   const streamController = ref<AgentStreamController | null>(null)
   let activeAssistantMessageId: string | null = null
 
@@ -433,6 +458,26 @@ export const useAgentChatStore = defineStore('agentChat', () => {
     }
   }
 
+  function updateMemoryRetrieval(event: AgentStreamEvent, data: Record<string, unknown>) {
+    const card = activeExecutionCard()
+    if (!card) return
+
+    const eventStatus = event.event.replace(/^memory_retrieval_/, '')
+    const memory = card.memory || {
+      status: 'running',
+      factsCount: 0,
+      episodesCount: 0,
+      startSeq: event.sequence,
+      endSeq: null
+    }
+
+    memory.status = eventStatus === 'started' ? 'running' : eventStatus
+    memory.factsCount = Math.max(0, Math.trunc(asNullableNumber(data.facts_count) ?? 0))
+    memory.episodesCount = Math.max(0, Math.trunc(asNullableNumber(data.episodes_count) ?? 0))
+    memory.endSeq = eventStatus === 'started' ? null : event.sequence
+    card.memory = memory
+  }
+
   function handleEvent(event: AgentStreamEvent) {
     if (event.conversation_id) conversationId.value = event.conversation_id
     const data = event.data as Record<string, unknown>
@@ -446,6 +491,9 @@ export const useAgentChatStore = defineStore('agentChat', () => {
     }
     if (event.event === 'reasoning_delta') appendDelta('reasoning', data.delta)
     if (event.event === 'content_delta') appendDelta('content', data.delta)
+    if (event.event.startsWith('memory_retrieval_')) {
+      updateMemoryRetrieval(event, data)
+    }
     if (event.event === 'timeline_step') {
       updateExecutionTimeline(event, data)
     }
@@ -563,7 +611,11 @@ export const useAgentChatStore = defineStore('agentChat', () => {
           decision: resumeRequest.decision,
           comment: resumeRequest.comment || null
         }, handlers)
-      : agentService.streamChat({ message: messages.value.at(-1)?.content || '', conversation_id: conversationId.value }, handlers)
+      : agentService.streamChat({
+          message: messages.value.at(-1)?.content || '',
+          conversation_id: conversationId.value,
+          ...(selectedLlmProfileId.value ? { llm_profile_id: selectedLlmProfileId.value } : {})
+        }, handlers)
   }
 
   function send(message: string, filters: FilterSnapshot) {
@@ -588,6 +640,10 @@ export const useAgentChatStore = defineStore('agentChat', () => {
   function disconnectStream() {
     clearStream()
     markStreamDetached()
+  }
+
+  function setLlmProfile(profileId: number | null) {
+    selectedLlmProfileId.value = profileId && Number.isInteger(profileId) && profileId > 0 ? profileId : null
   }
 
   function resetConversation() {
@@ -668,8 +724,8 @@ export const useAgentChatStore = defineStore('agentChat', () => {
   }
 
   return {
-    messages, runStatus, conversationId, pendingConfirmation, confirmationComment, activeRunId, isRunning,
+    messages, runStatus, conversationId, pendingConfirmation, confirmationComment, activeRunId, selectedLlmProfileId, isRunning,
     hasConversation, send, resume, disconnectStream,
-    resetConversation, loadConversation
+    resetConversation, loadConversation, setLlmProfile
   }
 })

@@ -180,51 +180,6 @@ export interface QueryUnderstandingResponse {
   other: null
 }
 
-// 检索源策略配置
-export interface SearchStrategyConfig {
-  source: string
-  name: string
-  totalCount: number
-  enabled: boolean
-}
-
-export interface SearchStrategyConfigResponse {
-  code: number
-  success: boolean
-  message: string
-  other: string | null
-  data: SearchStrategyConfig[]
-}
-
-export interface ConfigSaveResponse {
-  code: number
-  success: boolean
-  message?: string
-  other?: string | null
-  data: boolean
-}
-
-// AI 配置
-export type AiProvider = 'DASHSCOPE' | 'OPENAI_COMPATIBLE'
-
-export interface AiConfig {
-  provider: AiProvider
-  baseUrl: string
-  model: string
-  apiKey: string
-  temperature: number
-  maxTokens: number
-  timeoutMs: number
-}
-
-export interface AiConfigResponse {
-  code: number
-  success?: boolean
-  message?: string
-  other?: string | null
-  data: AiConfig
-}
-
 // 新建搜索任务请求接口
 export interface NewTaskRequest {
   prompt: string
@@ -667,32 +622,6 @@ class ApiService {
     } else {
       throw new Error(`API error: ${response.message}`)
     }
-  }
-
-  // 获取检索源策略配置
-  async getSearchStrategyConfig(): Promise<SearchStrategyConfigResponse> {
-    return await this.request<SearchStrategyConfigResponse>('/config/strategy')
-  }
-
-  // 保存检索源策略配置
-  async saveSearchStrategyConfig(configs: SearchStrategyConfig[]): Promise<ConfigSaveResponse> {
-    return await this.request<ConfigSaveResponse>('/config/strategy', {
-      method: 'POST',
-      body: JSON.stringify(configs)
-    })
-  }
-
-  // 获取 AI 配置
-  async getAiConfig(): Promise<AiConfigResponse> {
-    return await this.request<AiConfigResponse>('/config/ai')
-  }
-
-  // 保存 AI 配置
-  async saveAiConfig(config: AiConfig): Promise<ConfigSaveResponse> {
-    return await this.request<ConfigSaveResponse>('/config/ai', {
-      method: 'POST',
-      body: JSON.stringify(config)
-    })
   }
 
   // 提交搜索任务

@@ -92,6 +92,17 @@
             <span v-if="message.executionCard.iterations && message.executionCard.latencyMs"> · </span>
             <span v-if="message.executionCard.latencyMs">{{ formatDuration(message.executionCard.latencyMs) }}</span>
           </p>
+          <section
+            v-if="message.executionCard.memory"
+            class="memory-retrieval"
+            :class="`memory-retrieval-${memoryRetrievalTone(message.executionCard.memory.status)}`"
+          >
+            <span class="memory-retrieval-indicator" aria-hidden="true"></span>
+            <div>
+              <p class="memory-retrieval-title">{{ memoryRetrievalLabel(message.executionCard.memory.status) }}</p>
+              <p class="memory-retrieval-detail">{{ memoryRetrievalDetail(message.executionCard.memory) }}</p>
+            </div>
+          </section>
           <ol v-if="message.executionCard.activities.length" class="execution-activity-list">
             <li
               v-for="(activityItem, index) in message.executionCard.activities"
@@ -191,6 +202,19 @@
     </div>
 
     <div class="chat-composer">
+      <div class="llm-profile-selector">
+        <label for="llm-profile-select">模型</label>
+        <select
+          id="llm-profile-select"
+          :value="selectedLlmProfileId"
+          :disabled="llmSelectorDisabled"
+          @change="selectLlmProfile"
+        >
+          <option v-for="profile in enabledLlmProfiles" :key="profile.id" :value="profile.id">
+            {{ profile.name }}
+          </option>
+        </select>
+      </div>
       <textarea
         ref="composerRef"
         v-model="draft"
@@ -678,11 +702,13 @@ defineExpose({
 import { computed, nextTick, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import MarkdownIt from 'markdown-it'
+import type { LlmProfile } from '@/services/llmProfileService'
 import {
   useAgentChatStore,
   type ChatMessage,
   type FilterSnapshot,
-  type HistoricalExecutionActivity
+  type HistoricalExecutionActivity,
+  type HistoricalMemoryRetrieval
 } from '@/stores/agentChat'
 
 const markdown = new MarkdownIt({ html: false, linkify: true, breaks: true, typographer: true })
@@ -693,13 +719,17 @@ const {
   pendingConfirmation,
   confirmationComment,
   hasConversation,
+  selectedLlmProfileId,
   isRunning
 } = storeToRefs(chatStore)
 const draft = ref('')
 const messageListRef = ref<HTMLElement | null>(null)
 const composerRef = ref<HTMLTextAreaElement | null>(null)
 
-const props = defineProps<{ currentFilters: FilterSnapshot }>()
+const props = defineProps<{
+  currentFilters: FilterSnapshot
+  llmProfiles?: LlmProfile[]
+}>()
 const emit = defineEmits<{
   completed: []
   'update:isRunning': [value: boolean]
@@ -710,6 +740,8 @@ const emit = defineEmits<{
 }>()
 
 const canReuseMessage = computed(() => !isRunning.value && runStatus.value !== 'waiting_confirmation')
+const enabledLlmProfiles = computed(() => (props.llmProfiles || []).filter((profile) => profile.enabled))
+const llmSelectorDisabled = computed(() => isRunning.value || runStatus.value === 'waiting_confirmation')
 const statusLabel = computed(() => ({
   idle: '准备就绪', streaming: '正在执行', detached: '后台执行中（实时连接已断开）', waiting_confirmation: '等待确认', completed: '本轮完成', failed: '执行失败'
 })[runStatus.value])
@@ -743,6 +775,32 @@ function executionStepLabel(state: string) {
   if (state === 'completed') return '完成'
   if (state === 'failed') return '失败'
   return '进行中'
+}
+
+function memoryRetrievalTone(status: string) {
+  if (status === 'completed') return 'completed'
+  if (status === 'failed') return 'failed'
+  if (status === 'empty' || status === 'skipped') return 'empty'
+  return 'running'
+}
+
+function memoryRetrievalLabel(status: string) {
+  const labels: Record<string, string> = {
+    running: '正在检索会话记忆',
+    completed: '已加载会话记忆',
+    empty: '未找到匹配的会话记忆',
+    failed: '会话记忆暂不可用',
+    skipped: '已跳过会话记忆检索'
+  }
+  return labels[status] || '正在处理会话记忆'
+}
+
+function memoryRetrievalDetail(memory: HistoricalMemoryRetrieval) {
+  if (memory.status === 'running') return '正在匹配长期偏好与会话摘要'
+  if (memory.status === 'empty') return '未匹配到长期记忆或会话摘要'
+  if (memory.status === 'failed') return '已跳过记忆上下文，继续执行'
+  if (memory.status === 'skipped') return '本轮无需调用记忆'
+  return `长期记忆 ${memory.factsCount} 条 · 会话摘要 ${memory.episodesCount} 条`
 }
 
 function isActivityDetailsExpanded(activityItem: HistoricalExecutionActivity) {
@@ -850,8 +908,19 @@ function disconnectStream() {
   chatStore.disconnectStream()
 }
 
+function selectLlmProfile(event: Event) {
+  const value = (event.target as HTMLSelectElement).value
+  chatStore.setLlmProfile(value ? Number(value) : null)
+}
+
 watch(isRunning, (value) => emit('update:isRunning', value), { immediate: true })
 watch(hasConversation, (value) => emit('conversation-changed', value), { immediate: true })
+watch(enabledLlmProfiles, (profiles) => {
+  const selectedProfileExists = profiles.some((profile) => profile.id === selectedLlmProfileId.value)
+  if (selectedProfileExists) return
+
+  chatStore.setLlmProfile(profiles.find((profile) => profile.is_default)?.id ?? profiles[0]?.id ?? null)
+}, { immediate: true })
 watch([messages, pendingConfirmation], () => nextTick(scrollToBottom), { deep: true })
 watch(runStatus, (status) => {
   if (status !== 'completed') return
@@ -1133,6 +1202,71 @@ watch(runStatus, (status) => {
   padding: 9px 14px 0;
   color: #7a879d;
   font-size: 12px;
+}
+.memory-retrieval {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 10px 14px 0;
+  padding: 9px 10px;
+  border: 1px solid #dbe4f0;
+  border-radius: 10px;
+  color: #5d6b82;
+  background: rgba(255, 255, 255, 0.72);
+}
+.memory-retrieval-indicator {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: #7c91d8;
+}
+.memory-retrieval-title,
+.memory-retrieval-detail {
+  margin: 0;
+}
+.memory-retrieval-title {
+  color: #465775;
+  font-size: 12px;
+  font-weight: 750;
+}
+.memory-retrieval-detail {
+  margin-top: 2px;
+  color: #7a879d;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.memory-retrieval-running .memory-retrieval-indicator {
+  animation: pulse 1.2s infinite;
+}
+.memory-retrieval-completed {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+.memory-retrieval-completed .memory-retrieval-indicator {
+  background: #16a34a;
+}
+.memory-retrieval-completed .memory-retrieval-title {
+  color: #166534;
+}
+.memory-retrieval-empty {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+}
+.memory-retrieval-empty .memory-retrieval-indicator {
+  background: #94a3b8;
+}
+.memory-retrieval-failed {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+.memory-retrieval-failed .memory-retrieval-indicator {
+  background: #dc2626;
+}
+.memory-retrieval-failed .memory-retrieval-title,
+.memory-retrieval-failed .memory-retrieval-detail {
+  color: #b91c1c;
 }
 .execution-activity-list {
   display: flex;
@@ -1967,6 +2101,10 @@ watch(runStatus, (status) => {
   cursor: not-allowed;
 }
 .chat-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(130px, 170px) auto;
+  column-gap: 8px;
+  align-items: end;
   padding: 16px 18px 13px;
   border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 24px;
@@ -1977,12 +2115,57 @@ watch(runStatus, (status) => {
   backdrop-filter: blur(20px) saturate(135%);
   -webkit-backdrop-filter: blur(20px) saturate(135%);
 }
+.chat-composer > textarea {
+  grid-column: 1;
+  grid-row: 1;
+}
+.llm-profile-selector {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  margin: 0;
+}
+.llm-profile-selector label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.llm-profile-selector select {
+  width: 100%;
+  min-width: 0;
+  height: 31px;
+  border: 1px solid rgba(122, 143, 179, 0.3);
+  border-radius: 9px;
+  padding: 0 9px;
+  color: #354867;
+  background: rgba(255, 255, 255, 0.76);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+.llm-profile-selector select:focus {
+  border-color: rgba(79, 111, 232, 0.75);
+  box-shadow: 0 0 0 3px rgba(79, 111, 232, 0.12);
+}
+.llm-profile-selector select:disabled {
+  color: #8795a9;
+  background: rgba(241, 245, 249, 0.74);
+  cursor: not-allowed;
+}
 .chat-filter-slot {
+  grid-column: 1 / -1;
   padding: 0;
   background: transparent;
   border: 0;
 }
 .composer-divider {
+  grid-column: 1 / -1;
   height: 1px;
   margin: 8px 0 9px;
   background: linear-gradient(90deg, transparent, rgba(129, 140, 190, 0.25), transparent);
@@ -2025,6 +2208,7 @@ watch(runStatus, (status) => {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 .chat-composer > p {
+  grid-column: 1 / -1;
   margin-top: 8px;
 }
 .search-agent-button {
@@ -2056,7 +2240,30 @@ watch(runStatus, (status) => {
   cursor: not-allowed;
 }
 
-.send-button {
-  margin: -49px 4px 0 0;
+.chat-composer > .send-button,
+.chat-composer > .stop-button {
+  grid-column: 3;
+  grid-row: 1;
+  float: none;
+  margin: 0;
+}
+@media (max-width: 560px) {
+  .chat-composer {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 8px;
+  }
+  .chat-composer textarea {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  .llm-profile-selector {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .chat-composer > .send-button,
+  .chat-composer > .stop-button {
+    grid-column: 2;
+    grid-row: 2;
+  }
 }
 </style>
