@@ -106,6 +106,7 @@ export interface AgentCardSubagent {
   artifact_refs?: string[]
   error_code?: string | null
   error_message?: string | null
+  result?: Record<string, unknown>
   timeline?: AgentCardTimelineStep[]
 }
 
@@ -156,6 +157,11 @@ export interface AgentConversationMessagesData {
   conversation_id: string
   items: AgentConversationMessage[]
   next_before_id: number | null
+}
+
+export interface AgentDeleteConversationData {
+  conversation_id: string
+  deleted: boolean
 }
 
 export interface AgentStreamEvent<T = Record<string, unknown>> {
@@ -317,6 +323,19 @@ async function getJsonRequest<T>(path: string): Promise<AgentResponse<T>> {
   return (await response.json()) as AgentResponse<T>
 }
 
+async function deleteJsonRequest<T>(path: string): Promise<AgentResponse<T>> {
+  const response = await fetch(`${AGENT_API_BASE_URL}${path}`, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' }
+  })
+
+  if (!response.ok) {
+    throw await createJsonError(response)
+  }
+
+  return (await response.json()) as AgentResponse<T>
+}
+
 export const agentService = {
   streamChat(request: AgentChatRequest, handlers: AgentStreamHandlers): AgentStreamController {
     return streamRequest('/chat/stream', request, handlers)
@@ -343,5 +362,9 @@ export const agentService = {
     if (options.beforeId !== undefined) params.set('before_id', String(options.beforeId))
 
     return getJsonRequest(`/conversations/${encodeURIComponent(conversationId)}/messages?${params}`)
+  },
+  deleteConversation(conversationId: string): Promise<AgentResponse<AgentDeleteConversationData>> {
+    if (!conversationId) throw new Error('会话 ID 不能为空')
+    return deleteJsonRequest(`/conversations/${encodeURIComponent(conversationId)}`)
   }
 }

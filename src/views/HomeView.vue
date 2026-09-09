@@ -197,19 +197,33 @@
           <button type="button" @click="fetchConversations">重试</button>
         </p>
         <p v-else-if="!conversations.length" class="conversation-empty-state">你的历史对话会显示在这里。</p>
-        <button
+        <div
           v-for="conversation in conversations"
           :key="conversation.conversation_id"
           class="conversation-row"
           :class="{ 'conversation-row-active': selectedConversationId === conversation.conversation_id }"
-          type="button"
-          :disabled="isAgentRunning || isConversationLoading"
-          :title="conversation.title"
-          @click="openConversation(conversation.conversation_id)"
         >
-          <span class="conversation-row-title">{{ conversation.title || '未命名对话' }}</span>
-          <span class="conversation-row-preview">{{ conversation.last_message_preview }}</span>
-        </button>
+          <button
+            class="conversation-row-open"
+            type="button"
+            :disabled="isAgentRunning || isConversationLoading || deletingConversationId !== null"
+            :title="conversation.title"
+            @click="openConversation(conversation.conversation_id)"
+          >
+            <span class="conversation-row-title">{{ conversation.title || '未命名对话' }}</span>
+            <span class="conversation-row-preview">{{ conversation.last_message_preview }}</span>
+          </button>
+          <button
+            class="conversation-delete-button"
+            type="button"
+            :disabled="isAgentRunning || isConversationLoading || deletingConversationId !== null"
+            :aria-label="`删除会话：${conversation.title || '未命名对话'}`"
+            title="删除会话"
+            @click="requestConversationDeletion(conversation)"
+          >
+            删除
+          </button>
+        </div>
       </div>
     </aside>
 
@@ -266,6 +280,55 @@
           <LlmProfilesPanel v-else @updated="handleLlmProfilesUpdated" />
         </div>
       </section>
+    </transition>
+
+    <transition name="conversation-delete-dialog">
+      <div
+        v-if="pendingConversationDeletion"
+        class="conversation-delete-overlay"
+        @click.self="cancelConversationDeletion"
+      >
+        <section
+          class="conversation-delete-dialog"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="conversation-delete-title"
+          aria-describedby="conversation-delete-description"
+        >
+          <div class="conversation-delete-dialog-icon" aria-hidden="true">
+            <TriangleAlert :size="22" :stroke-width="1.8" />
+          </div>
+          <div class="conversation-delete-dialog-content">
+            <p class="conversation-delete-dialog-label">删除会话</p>
+            <h2 id="conversation-delete-title">确定要永久删除此会话？</h2>
+            <p id="conversation-delete-description">
+              “{{ pendingConversationDeletion.title || '未命名对话' }}”的消息、运行记录和相关记忆将被永久删除，且无法恢复。
+            </p>
+            <p v-if="conversationDeleteError" class="conversation-delete-dialog-error" role="alert">
+              {{ conversationDeleteError }}
+            </p>
+          </div>
+          <footer class="conversation-delete-dialog-actions">
+            <button
+              ref="deleteCancelButtonRef"
+              class="conversation-delete-cancel"
+              type="button"
+              :disabled="deletingConversationId !== null"
+              @click="cancelConversationDeletion"
+            >
+              保留会话
+            </button>
+            <button
+              class="conversation-delete-confirm"
+              type="button"
+              :disabled="deletingConversationId !== null"
+              @click="deleteConversation"
+            >
+              {{ deletingConversationId ? '正在删除…' : '永久删除' }}
+            </button>
+          </footer>
+        </section>
+      </div>
     </transition>
 
     <button
@@ -342,6 +405,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
+import { TriangleAlert } from 'lucide-vue-next'
 import AgentChatPanel from '@/components/AgentChatPanel.vue'
 import LlmProfilesPanel from '@/components/LlmProfilesPanel.vue'
 import SourceLimitsPanel from '@/components/SourceLimitsPanel.vue'
@@ -366,6 +430,10 @@ const conversations = ref<AgentConversationSummary[]>([])
 const selectedConversationId = ref<string | null>(null)
 const isConversationsLoading = ref(false)
 const isConversationLoading = ref(false)
+const deletingConversationId = ref<string | null>(null)
+const pendingConversationDeletion = ref<AgentConversationSummary | null>(null)
+const conversationDeleteError = ref('')
+const deleteCancelButtonRef = ref<HTMLButtonElement | null>(null)
 const conversationLoadError = ref('')
 const isAgentRunning = ref(false)
 const isConversationSidebarOpen = ref(false)
@@ -439,7 +507,7 @@ const stopConversationSidebarResize = () => {
 }
 
 const openConversation = async (conversationId: string) => {
-  if (isAgentRunning.value || isConversationLoading.value) return
+  if (isAgentRunning.value || isConversationLoading.value || deletingConversationId.value) return
 
   try {
     isConversationLoading.value = true
@@ -457,6 +525,55 @@ const openConversation = async (conversationId: string) => {
   } finally {
     isConversationLoading.value = false
   }
+}
+
+const requestConversationDeletion = (conversation: AgentConversationSummary) => {
+  if (isAgentRunning.value || isConversationLoading.value || deletingConversationId.value) return
+  pendingConversationDeletion.value = conversation
+  conversationDeleteError.value = ''
+}
+
+const cancelConversationDeletion = () => {
+  if (deletingConversationId.value) return
+  pendingConversationDeletion.value = null
+  conversationDeleteError.value = ''
+}
+
+const deleteConversation = async () => {
+  const conversation = pendingConversationDeletion.value
+  if (!conversation || isAgentRunning.value || isConversationLoading.value || deletingConversationId.value) return
+
+  try {
+    deletingConversationId.value = conversation.conversation_id
+    conversationDeleteError.value = ''
+    const response = await agentService.deleteConversation(conversation.conversation_id)
+    if (response.code !== 0 || !response.success || !response.data.deleted) {
+      throw new Error(response.message || '删除历史会话失败')
+    }
+
+    conversations.value = conversations.value.filter(
+      (item) => item.conversation_id !== conversation.conversation_id
+    )
+    if (selectedConversationId.value === conversation.conversation_id) {
+      agentChatStore.resetConversation()
+      selectedConversationId.value = null
+      isConversationSidebarOpen.value = false
+    }
+    pendingConversationDeletion.value = null
+  } catch (error) {
+    console.error('删除历史会话失败:', error)
+    conversationDeleteError.value = error instanceof Error ? error.message : '删除历史会话失败'
+  } finally {
+    deletingConversationId.value = null
+  }
+}
+
+watch(pendingConversationDeletion, (conversation) => {
+  if (conversation) nextTick(() => deleteCancelButtonRef.value?.focus())
+})
+
+const closeConversationDeleteDialogOnEscape = (event: KeyboardEvent) => {
+  if (event.key === 'Escape') cancelConversationDeletion()
 }
 
 const handleConversationUpdated = async (conversationId: string) => {
@@ -919,6 +1036,7 @@ onMounted(() => {
   window.addEventListener('pointerup', stopConversationSidebarResize)
   window.addEventListener('pointercancel', stopRecentDrawerResize)
   window.addEventListener('pointercancel', stopConversationSidebarResize)
+  window.addEventListener('keydown', closeConversationDeleteDialogOnEscape)
   nextTick(() => {
     handleViewportResize()
     updateSourceSelectWidth()
@@ -934,6 +1052,7 @@ onUnmounted(() => {
   window.removeEventListener('pointerup', stopConversationSidebarResize)
   window.removeEventListener('pointercancel', stopRecentDrawerResize)
   window.removeEventListener('pointercancel', stopConversationSidebarResize)
+  window.removeEventListener('keydown', closeConversationDeleteDialogOnEscape)
   stopRecentDrawerResize()
   stopConversationSidebarResize()
   if (extractTimer) {
@@ -1217,6 +1336,183 @@ onUnmounted(() => {
   transform: translate(-50%, -48%) scale(0.98);
 }
 
+.conversation-delete-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.38);
+  backdrop-filter: blur(5px);
+}
+
+.conversation-delete-dialog {
+  display: grid;
+  width: min(438px, 100%);
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 16px;
+  padding: 24px;
+  border: 1px solid rgba(180, 35, 76, 0.24);
+  border-radius: 18px;
+  background: rgba(252, 253, 255, 0.98);
+  box-shadow: 0 24px 60px rgba(38, 48, 76, 0.25);
+}
+
+.conversation-delete-dialog-icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 14px;
+  color: #b4234c;
+  background: #fff0f3;
+}
+
+.conversation-delete-dialog-content {
+  min-width: 0;
+}
+
+.conversation-delete-dialog-label {
+  margin: 1px 0 7px;
+  color: #a03452;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.conversation-delete-dialog h2 {
+  margin: 0;
+  color: #283652;
+  font-size: 20px;
+  line-height: 1.35;
+}
+
+.conversation-delete-dialog-content > p:not(.conversation-delete-dialog-label):not(.conversation-delete-dialog-error) {
+  margin: 9px 0 0;
+  color: #65738c;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.conversation-delete-dialog-error {
+  margin: 12px 0 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: #9d174d;
+  background: #fff1f2;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.conversation-delete-dialog-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 4px;
+}
+
+.conversation-delete-cancel,
+.conversation-delete-confirm {
+  min-height: 36px;
+  padding: 0 13px;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.conversation-delete-cancel {
+  border: 1px solid #d8e0ed;
+  color: #53627f;
+  background: #fff;
+}
+
+.conversation-delete-confirm {
+  border: 1px solid #b4234c;
+  color: #fff;
+  background: #b4234c;
+  box-shadow: 0 6px 14px rgba(180, 35, 76, 0.2);
+}
+
+.conversation-delete-cancel:hover:not(:disabled) {
+  background: #f4f6fb;
+}
+
+.conversation-delete-confirm:hover:not(:disabled) {
+  background: #9f1d42;
+  box-shadow: 0 8px 17px rgba(180, 35, 76, 0.26);
+}
+
+.conversation-delete-cancel:active:not(:disabled),
+.conversation-delete-confirm:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.conversation-delete-cancel:focus-visible,
+.conversation-delete-confirm:focus-visible {
+  outline: 3px solid rgba(79, 111, 232, 0.28);
+  outline-offset: 2px;
+}
+
+.conversation-delete-cancel:disabled,
+.conversation-delete-confirm:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.conversation-delete-dialog-enter-active,
+.conversation-delete-dialog-leave-active {
+  transition: opacity 0.18s ease;
+}
+
+.conversation-delete-dialog-enter-active .conversation-delete-dialog,
+.conversation-delete-dialog-leave-active .conversation-delete-dialog {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.conversation-delete-dialog-enter-from,
+.conversation-delete-dialog-leave-to {
+  opacity: 0;
+}
+
+.conversation-delete-dialog-enter-from .conversation-delete-dialog,
+.conversation-delete-dialog-leave-to .conversation-delete-dialog {
+  opacity: 0;
+  transform: translateY(8px) scale(0.985);
+}
+
+@media (max-width: 500px) {
+  .conversation-delete-overlay {
+    padding: 16px;
+  }
+
+  .conversation-delete-dialog {
+    grid-template-columns: 1fr;
+    gap: 13px;
+    padding: 20px;
+  }
+
+  .conversation-delete-dialog-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    margin-top: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conversation-delete-dialog-enter-active,
+  .conversation-delete-dialog-leave-active,
+  .conversation-delete-dialog-enter-active .conversation-delete-dialog,
+  .conversation-delete-dialog-leave-active .conversation-delete-dialog,
+  .conversation-delete-cancel,
+  .conversation-delete-confirm {
+    transition: none;
+  }
+}
+
 /* 动态背景形状 */
 .background-shapes {
   position: absolute;
@@ -1391,7 +1687,8 @@ onUnmounted(() => {
 }
 
 .new-conversation-button:disabled,
-.conversation-row:disabled {
+.conversation-row-open:disabled,
+.conversation-delete-button:disabled {
   cursor: not-allowed;
   opacity: 0.58;
 }
@@ -1413,26 +1710,64 @@ onUnmounted(() => {
 .conversation-row {
   display: flex;
   width: 100%;
-  flex-direction: column;
-  gap: 4px;
   margin-bottom: 3px;
-  padding: 10px 10px 9px;
-  border: 0;
   border-radius: 10px;
-  color: #4c5d7e;
-  text-align: left;
-  cursor: pointer;
   background: transparent;
   transition: background-color 0.16s ease, color 0.16s ease;
 }
 
-.conversation-row:hover:not(:disabled) {
+.conversation-row:hover {
   background: rgba(224, 231, 255, 0.68);
 }
 
 .conversation-row-active {
   color: #31447f;
   background: rgba(211, 221, 255, 0.78);
+}
+
+.conversation-row-open {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 6px 9px 10px;
+  border: 0;
+  color: #4c5d7e;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+}
+
+.conversation-delete-button {
+  align-self: center;
+  margin-right: 6px;
+  padding: 4px 5px;
+  border: 0;
+  border-radius: 6px;
+  color: #a34d62;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  background: transparent;
+  opacity: 0;
+  transition: background-color 0.16s ease, opacity 0.16s ease;
+}
+
+.conversation-row:hover .conversation-delete-button,
+.conversation-delete-button:focus-visible {
+  opacity: 1;
+}
+
+.conversation-delete-button:hover:not(:disabled) {
+  background: rgba(254, 226, 226, 0.9);
+}
+
+.conversation-row-open:focus-visible,
+.conversation-delete-button:focus-visible {
+  outline: 2px solid rgba(82, 104, 188, 0.45);
+  outline-offset: -2px;
 }
 
 .conversation-row-title,
@@ -1826,7 +2161,7 @@ onUnmounted(() => {
 
 .source-options {
   position: absolute;
-  top: calc(100% + 10px);
+  bottom: calc(100% + 10px);
   right: 0;
   background: rgba(255, 255, 255, 0.97);
   border-radius: 14px;
@@ -1880,7 +2215,7 @@ onUnmounted(() => {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
-  transform: translateY(-5px);
+  transform: translateY(5px);
 }
 
 .understanding-section {

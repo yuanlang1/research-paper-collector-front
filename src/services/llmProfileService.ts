@@ -19,6 +19,7 @@ export interface LlmProfile {
   key_last4: string
   enabled: boolean
   is_default: boolean
+  is_small_model: boolean
   version: number
   created_at: string
   updated_at: string
@@ -32,6 +33,7 @@ export interface LlmProfileInput {
   api_key: string
   enabled: boolean
   is_default: boolean
+  is_small_model: boolean
 }
 
 export interface LlmProfileUpdate {
@@ -42,6 +44,7 @@ export interface LlmProfileUpdate {
   api_key?: string
   enabled?: boolean
   is_default?: boolean
+  is_small_model?: boolean
 }
 
 export interface LlmProfileConnectionTest {

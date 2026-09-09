@@ -32,6 +32,7 @@
           <div class="profile-name-line">
             <strong>{{ profile.name }}</strong>
             <span v-if="profile.is_default" class="profile-status profile-status-default">系统默认</span>
+            <span v-if="profile.is_small_model" class="profile-status profile-status-small">小模型</span>
             <span class="profile-status" :class="profile.enabled ? 'profile-status-enabled' : 'profile-status-disabled'">
               {{ profile.enabled ? '已启用' : '已停用' }}
             </span>
@@ -131,6 +132,10 @@
           <input v-model="draft.is_default" type="checkbox" :disabled="!draft.enabled || isEditingDefault" />
           <span>设为系统默认</span>
         </label>
+        <label class="profile-check">
+          <input v-model="draft.is_small_model" type="checkbox" :disabled="!draft.enabled" />
+          <span>设为小模型</span>
+        </label>
       </div>
 
       <div class="profile-editor-actions">
@@ -165,6 +170,7 @@ interface ProfileDraft {
   api_key: string
   enabled: boolean
   is_default: boolean
+  is_small_model: boolean
 }
 
 const profiles = ref<LlmProfile[]>([])
@@ -193,7 +199,8 @@ function newDraft(profile?: LlmProfile): ProfileDraft {
     model: profile?.model || '',
     api_key: '',
     enabled: profile?.enabled ?? true,
-    is_default: profile?.is_default ?? false
+    is_default: profile?.is_default ?? false,
+    is_small_model: profile?.is_small_model ?? false
   }
 }
 
@@ -259,6 +266,10 @@ async function saveProfile() {
     formError.value = '默认档案必须处于启用状态。'
     return
   }
+  if (draft.value.is_small_model && !draft.value.enabled) {
+    formError.value = '小模型必须处于启用状态。'
+    return
+  }
 
   try {
     saving.value = true
@@ -269,7 +280,8 @@ async function saveProfile() {
       base_url: draft.value.base_url || null,
       model: draft.value.model,
       enabled: editingProfileId.value || profiles.value.length ? draft.value.enabled : true,
-      is_default: draft.value.is_default
+      is_default: draft.value.is_default,
+      is_small_model: draft.value.is_small_model
     }
     if (editingProfileId.value) {
       const payload: LlmProfileUpdate = { ...common }
@@ -524,6 +536,10 @@ onMounted(refresh)
 .profile-status-default {
   color: #174a83;
   background: #e6f1ff;
+}
+.profile-status-small {
+  color: #6a3ea2;
+  background: #f3eaff;
 }
 .profile-status-enabled,
 .profile-key-status {

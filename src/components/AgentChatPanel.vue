@@ -2,7 +2,6 @@
   <section class="agent-chat-panel" :class="{ 'has-conversation': hasConversation }">
     <header class="chat-header">
       <div>
-        <p class="chat-eyebrow">Paper Research</p>
         <h2 v-if="!hasConversation">今天想研究什么？</h2>
       </div>
       <div class="chat-header-actions">
@@ -12,7 +11,7 @@
       </div>
     </header>
 
-    <div ref="messageListRef" class="message-list" aria-live="polite">
+    <div ref="messageListRef" class="message-list" aria-live="polite" @scroll="updateMessageListScroll">
       <div v-if="!messages.length" class="chat-empty">
         <strong>告诉我你的研究需求</strong>
         <span>例如：帮我找近五年 RAG 幻觉检测论文，并推荐 20 篇。</span>
@@ -23,9 +22,7 @@
         class="chat-message"
         :class="`chat-message-${message.role}`"
       >
-        <span class="message-role">{{
-          message.role === 'user' ? '你' : message.role === 'assistant' ? '论文研究助手' : '系统'
-        }}</span>
+        <span v-if="message.role === 'system'" class="message-role">系统</span>
         <div v-if="message.role === 'assistant' && (hasReasoning(message) || message.thinkingStartedAt)" class="thinking-reasoning">
           <button
             class="thinking-reasoning-header"
@@ -68,18 +65,31 @@
           :class="{ 'is-streaming': isMessageStreaming(message) }"
           v-html="renderMarkdown(message.content)"
         ></div>
-        <button
+        <div
           v-if="message.role === 'user' && canReuseMessage"
-          class="message-reuse-trigger"
-          type="button"
-          aria-label="复用此消息与筛选条件"
-          title="复用此消息与筛选条件"
-          @click="reuseMessage(message)"
+          class="message-user-actions"
         >
-          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-            <path d="m14.7 4.3 5 5M4.5 19.5l3.2-.8L19.4 7a2.1 2.1 0 0 0-3-3L4.7 15.7l-.2 3.8Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-        </button>
+          <button
+            class="message-copy-trigger"
+            type="button"
+            aria-label="复制此提问"
+            title="复制此提问"
+            @click="copyMessage(message)"
+          >
+            <span class="message-copy-icon" aria-hidden="true"></span>
+          </button>
+          <button
+            class="message-reuse-trigger"
+            type="button"
+            aria-label="编辑此提问"
+            title="编辑此提问"
+            @click="reuseMessage(message)"
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+              <path d="m14.7 4.3 5 5M4.5 19.5l3.2-.8L19.4 7a2.1 2.1 0 0 0-3-3L4.7 15.7l-.2 3.8Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+        </div>
         <section v-if="message.executionCard" class="execution-card">
           <header class="execution-card-header">
             <span class="execution-status" :class="`execution-status-${executionStatusTone(message.executionCard.status)}`">
@@ -162,7 +172,24 @@
                         :class="`execution-workflow-step-${step.state}`"
                       >
                         <span>{{ step.label }}</span>
-                        <small>{{ executionStepLabel(step.state) }}</small>
+                        <span
+                          class="execution-workflow-step-status"
+                          :class="`execution-workflow-step-status-${step.state}`"
+                          role="img"
+                          :aria-label="executionStepLabel(step.state)"
+                          :title="executionStepLabel(step.state)"
+                        >
+                          <template v-if="step.state === 'started'">
+                            <span
+                              v-for="index in 8"
+                              :key="index"
+                              class="execution-workflow-orb-dot"
+                              :style="workflowOrbDotStyle(index)"
+                              aria-hidden="true"
+                            ></span>
+                          </template>
+                          <span v-else aria-hidden="true">{{ executionStepMark(step.state) }}</span>
+                        </span>
                         <p v-if="step.error">{{ step.error }}</p>
                       </li>
                     </ol>
@@ -199,21 +226,53 @@
         </section>
       </article>
 
+      <button
+        v-if="showScrollToBottom"
+        class="scroll-to-bottom-button"
+        type="button"
+        aria-label="回到底部"
+        title="回到底部"
+        @click="scrollToBottom"
+      >
+        <ArrowDown :size="16" aria-hidden="true" />
+      </button>
     </div>
 
     <div class="chat-composer">
-      <div class="llm-profile-selector">
-        <label for="llm-profile-select">模型</label>
-        <select
+      <div
+        ref="llmProfileSelectorRef"
+        class="llm-profile-selector"
+        @focusout="closeLlmProfileMenuOnFocusOut"
+        @keydown.esc.stop="closeLlmProfileMenu"
+      >
+        <span id="llm-profile-label" class="llm-profile-label">模型</span>
+        <button
           id="llm-profile-select"
-          :value="selectedLlmProfileId"
-          :disabled="llmSelectorDisabled"
-          @change="selectLlmProfile"
+          type="button"
+          class="llm-profile-trigger"
+          :disabled="llmSelectorDisabled || !enabledLlmProfiles.length"
+          aria-haspopup="menu"
+          :aria-expanded="isLlmMenuOpen"
+          aria-labelledby="llm-profile-label llm-profile-value"
+          @click="toggleLlmProfileMenu"
         >
-          <option v-for="profile in enabledLlmProfiles" :key="profile.id" :value="profile.id">
+          <span id="llm-profile-value" class="llm-profile-value">{{ selectedLlmProfile?.name || '暂无可用模型' }}</span>
+          <span class="llm-profile-chevron" aria-hidden="true"></span>
+        </button>
+        <div v-if="isLlmMenuOpen" class="llm-profile-menu" role="menu" aria-labelledby="llm-profile-label">
+          <button
+            v-for="profile in enabledLlmProfiles"
+            :key="profile.id"
+            type="button"
+            class="llm-profile-option"
+            :class="{ 'is-selected': profile.id === selectedLlmProfileId }"
+            role="menuitemradio"
+            :aria-checked="profile.id === selectedLlmProfileId"
+            @click="selectLlmProfile(profile.id)"
+          >
             {{ profile.name }}
-          </option>
-        </select>
+          </button>
+        </div>
       </div>
       <textarea
         ref="composerRef"
@@ -224,17 +283,17 @@
         @keydown.enter.exact.prevent="send"
         @keydown.enter.shift.exact.stop
       ></textarea>
-      <button v-if="isRunning" class="stop-button" type="button" @click="disconnectStream">
-        断开实时连接
-      </button>
       <button
-        v-if="!isRunning"
         class="send-button"
         type="button"
-        :disabled="!draft.trim()"
+        :disabled="isRunning || !draft.trim()"
+        aria-label="发送"
+        title="发送"
         @click="send"
       >
-        ↑
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 19V5m-7 7 7-7 7 7" />
+        </svg>
       </button>
       <div class="composer-divider"></div>
       <div class="chat-filter-slot">
@@ -519,6 +578,11 @@ function reuseMessage(message: ChatMessage) {
   })
 }
 
+function copyMessage(message: ChatMessage) {
+  if (message.role !== 'user' || !message.content) return
+  void navigator.clipboard?.writeText(message.content).catch(() => undefined)
+}
+
 function startStream(resumeRequest?: { decision: 'approved' | 'rejected'; comment: string }) {
   pendingConfirmation.value = null
   activity.value = { title: '正在连接研究 Agent…' }
@@ -702,6 +766,7 @@ defineExpose({
 import { computed, nextTick, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import MarkdownIt from 'markdown-it'
+import { ArrowDown } from 'lucide-vue-next'
 import type { LlmProfile } from '@/services/llmProfileService'
 import {
   useAgentChatStore,
@@ -725,6 +790,10 @@ const {
 const draft = ref('')
 const messageListRef = ref<HTMLElement | null>(null)
 const composerRef = ref<HTMLTextAreaElement | null>(null)
+const llmProfileSelectorRef = ref<HTMLElement | null>(null)
+const isLlmMenuOpen = ref(false)
+const isMessageListAtBottom = ref(true)
+let skipNextAutoScroll = false
 
 const props = defineProps<{
   currentFilters: FilterSnapshot
@@ -742,6 +811,8 @@ const emit = defineEmits<{
 const canReuseMessage = computed(() => !isRunning.value && runStatus.value !== 'waiting_confirmation')
 const enabledLlmProfiles = computed(() => (props.llmProfiles || []).filter((profile) => profile.enabled))
 const llmSelectorDisabled = computed(() => isRunning.value || runStatus.value === 'waiting_confirmation')
+const selectedLlmProfile = computed(() => enabledLlmProfiles.value.find((profile) => profile.id === selectedLlmProfileId.value))
+const showScrollToBottom = computed(() => hasConversation.value && !isMessageListAtBottom.value)
 const statusLabel = computed(() => ({
   idle: '准备就绪', streaming: '正在执行', detached: '后台执行中（实时连接已断开）', waiting_confirmation: '等待确认', completed: '本轮完成', failed: '执行失败'
 })[runStatus.value])
@@ -777,6 +848,19 @@ function executionStepLabel(state: string) {
   return '进行中'
 }
 
+function executionStepMark(state: string) {
+  if (state === 'completed') return '✓'
+  if (state === 'failed') return '×'
+  return ''
+}
+
+function workflowOrbDotStyle(index: number) {
+  return {
+    '--workflow-orb-angle': `${(index - 1) * 45}deg`,
+    '--workflow-orb-delay': `${-((8 - index) / 8) * 1600}ms`
+  }
+}
+
 function memoryRetrievalTone(status: string) {
   if (status === 'completed') return 'completed'
   if (status === 'failed') return 'failed'
@@ -808,6 +892,7 @@ function isActivityDetailsExpanded(activityItem: HistoricalExecutionActivity) {
 }
 
 function toggleActivityDetails(activityItem: HistoricalExecutionActivity) {
+  skipNextAutoScroll = true
   activityItem.detailsExpanded = !isActivityDetailsExpanded(activityItem)
 }
 
@@ -816,6 +901,7 @@ function isTimelineExpanded(activityItem: HistoricalExecutionActivity) {
 }
 
 function toggleTimeline(activityItem: HistoricalExecutionActivity) {
+  skipNextAutoScroll = true
   activityItem.timelineExpanded = !isTimelineExpanded(activityItem)
 }
 
@@ -845,7 +931,15 @@ function renderMarkdown(content: string) {
 }
 
 function scrollToBottom() {
-  if (messageListRef.value) messageListRef.value.scrollTop = messageListRef.value.scrollHeight
+  if (!messageListRef.value) return
+  messageListRef.value.scrollTop = messageListRef.value.scrollHeight
+  isMessageListAtBottom.value = true
+}
+
+function updateMessageListScroll() {
+  const messageList = messageListRef.value
+  if (!messageList) return
+  isMessageListAtBottom.value = messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight <= 24
 }
 
 function isThinkingComplete(message: ChatMessage) {
@@ -875,7 +969,9 @@ function hasReasoning(message: ChatMessage) {
 }
 
 function toggleReasoning(message: ChatMessage) {
-  if (isThinkingComplete(message) && hasReasoning(message)) message.reasoningExpanded = !message.reasoningExpanded
+  if (!isThinkingComplete(message) || !hasReasoning(message)) return
+  skipNextAutoScroll = true
+  message.reasoningExpanded = !message.reasoningExpanded
 }
 
 function isMessageStreaming(message: ChatMessage) {
@@ -895,22 +991,37 @@ function reuseMessage(message: ChatMessage) {
 function send() {
   const message = draft.value.trim()
   if (!message || isRunning.value) return
+  isMessageListAtBottom.value = true
   chatStore.send(message, props.currentFilters)
   emit('message-sent', message)
   draft.value = ''
+  nextTick(scrollToBottom)
 }
 
 function resume(decision: 'approved' | 'rejected') {
+  isMessageListAtBottom.value = true
   chatStore.resume(decision)
+  nextTick(scrollToBottom)
 }
 
-function disconnectStream() {
-  chatStore.disconnectStream()
+function toggleLlmProfileMenu() {
+  if (llmSelectorDisabled.value || !enabledLlmProfiles.value.length) return
+  isLlmMenuOpen.value = !isLlmMenuOpen.value
 }
 
-function selectLlmProfile(event: Event) {
-  const value = (event.target as HTMLSelectElement).value
-  chatStore.setLlmProfile(value ? Number(value) : null)
+function closeLlmProfileMenu() {
+  isLlmMenuOpen.value = false
+}
+
+function closeLlmProfileMenuOnFocusOut(event: FocusEvent) {
+  const nextFocusedElement = event.relatedTarget as Node | null
+  if (!llmProfileSelectorRef.value?.contains(nextFocusedElement)) closeLlmProfileMenu()
+}
+
+function selectLlmProfile(profileId: number) {
+  if (llmSelectorDisabled.value) return
+  chatStore.setLlmProfile(profileId)
+  closeLlmProfileMenu()
 }
 
 watch(isRunning, (value) => emit('update:isRunning', value), { immediate: true })
@@ -921,7 +1032,18 @@ watch(enabledLlmProfiles, (profiles) => {
 
   chatStore.setLlmProfile(profiles.find((profile) => profile.is_default)?.id ?? profiles[0]?.id ?? null)
 }, { immediate: true })
-watch([messages, pendingConfirmation], () => nextTick(scrollToBottom), { deep: true })
+watch(llmSelectorDisabled, (disabled) => {
+  if (disabled) closeLlmProfileMenu()
+})
+watch([messages, pendingConfirmation], () => {
+  if (skipNextAutoScroll) {
+    skipNextAutoScroll = false
+    return
+  }
+  nextTick(() => {
+    if (isMessageListAtBottom.value) scrollToBottom()
+  })
+}, { deep: true })
 watch(runStatus, (status) => {
   if (status !== 'completed') return
   emit('completed')
@@ -947,14 +1069,6 @@ watch(runStatus, (status) => {
   gap: 16px;
   padding: 22px 26px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.18);
-}
-.chat-eyebrow {
-  margin: 0 0 4px;
-  color: #7c88a5;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
 }
 .chat-header h2 {
   margin: 0;
@@ -986,7 +1100,6 @@ watch(runStatus, (status) => {
   color: #b91c1c;
   background: #fee2e2;
 }
-.stop-button,
 .send-button,
 .approve-button,
 .reject-button {
@@ -1123,34 +1236,82 @@ watch(runStatus, (status) => {
     background-position: -200% 0;
   }
 }
-.message-reuse-trigger {
+.message-user-actions {
   position: absolute;
-  right: 8px;
-  bottom: 7px;
+  right: 0;
+  bottom: -30px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+.message-reuse-trigger,
+.message-copy-trigger {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   border: 0;
-  border-radius: 7px;
-  color: #64748b;
-  background: rgba(255, 255, 255, 0.58);
+  border-radius: 50%;
+  color: #5c70c5;
+  background: transparent;
+  box-shadow: none;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.18s ease, color 0.18s ease, background 0.18s ease;
+  transition: color 0.18s ease, transform 0.18s ease;
+}
+.message-reuse-trigger svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2;
+}
+.message-copy-icon {
+  position: relative;
+  display: block;
+  width: 12px;
+  height: 12px;
+}
+.message-copy-icon::before,
+.message-copy-icon::after {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+  content: '';
+}
+.message-copy-icon::before {
+  top: 0;
+  right: 0;
+}
+.message-copy-icon::after {
+  bottom: 0;
+  left: 0;
+  background: #edf3ff;
 }
 .chat-message-user {
   position: relative;
-  padding-bottom: 22px;
+  padding: 10px 14px 11px;
+  margin-bottom: 30px;
 }
-.chat-message-user:hover .message-reuse-trigger,
-.message-reuse-trigger:focus-visible {
+.chat-message-user:hover .message-user-actions,
+.message-user-actions:focus-within {
   opacity: 1;
 }
-.message-reuse-trigger:hover {
-  color: #3b5ccc;
-  background: rgba(255, 255, 255, 0.92);
+.message-reuse-trigger:hover,
+.message-copy-trigger:hover {
+  color: #3f5ed4;
+  transform: translateY(-1px);
+}
+.message-reuse-trigger:active,
+.message-copy-trigger:active {
+  transform: scale(0.96);
+}
+.message-reuse-trigger:focus-visible,
+.message-copy-trigger:focus-visible {
+  outline: 3px solid rgba(79, 111, 232, 0.28);
+  outline-offset: 2px;
 }
 .chat-message p,
 .activity-card p,
@@ -1420,13 +1581,70 @@ watch(runStatus, (status) => {
   background: #7c91d8;
   content: '';
 }
-.execution-workflow li > span {
+.execution-workflow li > span:first-child {
   grid-column: 2;
 }
-.execution-workflow li small {
+.execution-workflow-step-status {
   grid-column: 3;
-  color: #94a3b8;
-  font-size: 11px;
+  position: relative;
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  margin-top: -1px;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+}
+.execution-workflow-step-status-completed {
+  color: #22a35a;
+}
+.execution-workflow-step-status-failed {
+  color: #dc2626;
+}
+.execution-workflow-step-status-started {
+  color: #6f84cf;
+}
+.execution-workflow-orb-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  transform: rotate(var(--workflow-orb-angle));
+}
+.execution-workflow-orb-dot::before {
+  position: absolute;
+  width: 2.5px;
+  height: 2.5px;
+  border-radius: 50%;
+  background: currentColor;
+  content: '';
+  opacity: 0.14;
+  transform: translate(-50%, -6px) scale(1);
+  animation: execution-workflow-orb-c1 1.6s cubic-bezier(0.66, 0, 0.34, 1) infinite both;
+  animation-delay: var(--workflow-orb-delay);
+}
+@keyframes execution-workflow-orb-c1 {
+  0% {
+    opacity: 0.14;
+    transform: translate(-50%, -6px) scale(1);
+  }
+  28% {
+    opacity: 1;
+    transform: translate(-50%, -6px) scale(1.35);
+  }
+  56%,
+  100% {
+    opacity: 0.14;
+    transform: translate(-50%, -6px) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .execution-workflow-orb-dot::before {
+    animation: none;
+    opacity: 0.72;
+  }
 }
 .execution-workflow li p {
   grid-column: 2 / -1;
@@ -1670,17 +1888,11 @@ watch(runStatus, (status) => {
   border-color: #60a5fa;
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
 }
-.send-button,
-.stop-button {
+.send-button {
   float: right;
   margin: -46px 8px 0 0;
 }
-.stop-button {
-  color: #b91c1c;
-  background: #fee2e2;
-}
 .send-button:disabled {
-  opacity: 0.5;
   cursor: not-allowed;
 }
 .chat-composer p {
@@ -1736,12 +1948,6 @@ watch(runStatus, (status) => {
   min-height: 42px;
   padding: 0 8px;
   border: 0;
-}
-.chat-eyebrow {
-  margin: 0;
-  color: #718096;
-  font-size: 12px;
-  letter-spacing: 0.12em;
 }
 .chat-header h2 {
   margin: 10px 0 0;
@@ -1801,27 +2007,6 @@ watch(runStatus, (status) => {
 }
 .chat-composer textarea:focus {
   box-shadow: none;
-}
-.send-button,
-.stop-button {
-  width: 34px;
-  height: 34px;
-  margin: -45px 3px 0 0;
-  border-radius: 50%;
-  background: #4f6fe8;
-  font-size: 23px;
-  line-height: 1;
-}
-.stop-button {
-  width: auto;
-  padding: 8px 12px;
-  border-radius: 9px;
-  color: #b91c1c;
-  background: #fee2e2;
-  font-size: 13px;
-}
-.send-button:disabled {
-  background: #c7d2fe;
 }
 .chat-composer > p {
   font-size: 11px;
@@ -1912,9 +2097,48 @@ watch(runStatus, (status) => {
   flex: 1 1 auto;
   min-height: 0;
   height: auto;
+  padding-bottom: 68px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+}
+.scroll-to-bottom-button {
+  position: sticky;
+  bottom: 12px;
+  z-index: 1;
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  align-self: center;
+  align-items: center;
+  justify-content: center;
+  margin: -42px 0 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #a1a1a1;
+  box-shadow: none;
+  cursor: pointer;
+}
+.scroll-to-bottom-button::before {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: rgba(26, 26, 26, 0.06);
+  content: '';
+  transition:
+    background 150ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.scroll-to-bottom-button > :deep(svg) {
+  position: relative;
+  z-index: 1;
+  stroke-width: 1.5px;
+}
+.scroll-to-bottom-button:focus-visible {
+  outline: 3px solid rgba(26, 26, 26, 0.2);
+  outline-offset: 2px;
 }
 .has-conversation .chat-composer {
   flex: none;
@@ -1953,6 +2177,11 @@ watch(runStatus, (status) => {
   .has-conversation {
     height: calc(100vh - 40px);
     max-height: calc(100vh - 40px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scroll-to-bottom-button {
+    transition: none;
   }
 }
 .markdown-body {
@@ -2063,41 +2292,43 @@ watch(runStatus, (status) => {
   display: grid;
   place-items: center;
   box-sizing: border-box;
-  width: 38px;
-  height: 38px;
-  margin: -47px 3px 0 0;
+  width: 31px;
+  height: 31px;
+  margin: 0;
   padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.52);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 50%;
   color: #fff;
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.72), rgba(118, 75, 162, 0.66));
-  box-shadow:
-    0 8px 20px rgba(90, 91, 184, 0.26),
-    inset 0 1px 0 rgba(255, 255, 255, 0.45);
-  backdrop-filter: blur(14px) saturate(145%);
-  -webkit-backdrop-filter: blur(14px) saturate(145%);
-  font-size: 24px;
-  font-weight: 500;
-  line-height: 1;
-  transition:
-    transform 0.18s ease,
-    box-shadow 0.18s ease,
-    background 0.18s ease;
+  background: #4f6fe8;
+  box-shadow: 0 3px 8px rgba(79, 111, 232, 0.28);
+  transition: transform 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+}
+.send-button svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
 }
 .send-button:hover:not(:disabled) {
-  transform: translateY(-2px) scale(1.04);
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.88), rgba(118, 75, 162, 0.82));
-  box-shadow:
-    0 12px 25px rgba(90, 91, 184, 0.34),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  transform: translateY(-1px);
+  background: #3f5ed4;
+  box-shadow: 0 5px 12px rgba(79, 111, 232, 0.34);
 }
 .send-button:active:not(:disabled) {
-  transform: translateY(0) scale(0.97);
+  transform: translateY(0);
+}
+.send-button:focus-visible {
+  outline: 3px solid rgba(79, 111, 232, 0.25);
+  outline-offset: 2px;
 }
 .send-button:disabled {
-  color: rgba(255, 255, 255, 0.72);
-  background: linear-gradient(135deg, rgba(148, 163, 184, 0.45), rgba(129, 140, 167, 0.38));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  opacity: 1;
+  color: #f8fafc;
+  background: #cbd5e1;
+  box-shadow: none;
   cursor: not-allowed;
 }
 .chat-composer {
@@ -2122,10 +2353,11 @@ watch(runStatus, (status) => {
 .llm-profile-selector {
   grid-column: 2;
   grid-row: 1;
+  position: relative;
   min-width: 0;
   margin: 0;
 }
-.llm-profile-selector label {
+.llm-profile-label {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -2136,27 +2368,108 @@ watch(runStatus, (status) => {
   white-space: nowrap;
   border: 0;
 }
-.llm-profile-selector select {
+.llm-profile-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   width: 100%;
   min-width: 0;
   height: 31px;
-  border: 1px solid rgba(122, 143, 179, 0.3);
-  border-radius: 9px;
-  padding: 0 9px;
+  padding: 0 10px 0 11px;
+  border: 1px solid rgba(122, 143, 179, 0.32);
+  border-radius: 10px;
   color: #354867;
-  background: rgba(255, 255, 255, 0.76);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
   font: inherit;
   font-size: 12px;
-  outline: none;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
-.llm-profile-selector select:focus {
-  border-color: rgba(79, 111, 232, 0.75);
-  box-shadow: 0 0 0 3px rgba(79, 111, 232, 0.12);
+.llm-profile-trigger:hover:not(:disabled),
+.llm-profile-trigger[aria-expanded='true'] {
+  border-color: rgba(79, 111, 232, 0.64);
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(79, 111, 232, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
-.llm-profile-selector select:disabled {
+.llm-profile-trigger:active:not(:disabled) {
+  transform: scale(0.985);
+}
+.llm-profile-trigger:focus-visible,
+.llm-profile-option:focus-visible {
+  outline: 3px solid rgba(79, 111, 232, 0.25);
+  outline-offset: 2px;
+}
+.llm-profile-trigger:disabled {
   color: #8795a9;
   background: rgba(241, 245, 249, 0.74);
+  box-shadow: none;
   cursor: not-allowed;
+}
+.llm-profile-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-profile-chevron {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  margin: -3px 2px 0 0;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  color: #6b7a99;
+  transform: rotate(45deg);
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+.llm-profile-trigger[aria-expanded='true'] .llm-profile-chevron {
+  color: #4f6fe8;
+  transform: rotate(225deg) translate(-2px, -2px);
+}
+.llm-profile-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 2;
+  display: grid;
+  width: max-content;
+  min-width: 100%;
+  max-width: min(320px, calc(100vw - 32px));
+  max-height: min(220px, 35vh);
+  gap: 2px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid rgba(122, 143, 179, 0.24);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(74, 85, 140, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+.llm-profile-option {
+  width: 100%;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  color: #4b5b78;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.llm-profile-option:hover,
+.llm-profile-option:focus-visible {
+  color: #3f5ed4;
+  background: #f4f6ff;
+}
+.llm-profile-option.is-selected {
+  color: #3f5ed4;
+  background: #e9eeff;
+  font-weight: 700;
 }
 .chat-filter-slot {
   grid-column: 1 / -1;
@@ -2240,10 +2553,10 @@ watch(runStatus, (status) => {
   cursor: not-allowed;
 }
 
-.chat-composer > .send-button,
-.chat-composer > .stop-button {
+.chat-composer > .send-button {
   grid-column: 3;
   grid-row: 1;
+  align-self: end;
   float: none;
   margin: 0;
 }
@@ -2260,8 +2573,7 @@ watch(runStatus, (status) => {
     grid-column: 1;
     grid-row: 2;
   }
-  .chat-composer > .send-button,
-  .chat-composer > .stop-button {
+  .chat-composer > .send-button {
     grid-column: 2;
     grid-row: 2;
   }

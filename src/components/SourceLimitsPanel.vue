@@ -27,7 +27,6 @@
         <label v-for="source in sources" :key="source.key" class="source-limit-row" :for="inputId(source.key)">
           <span class="source-limit-info">
             <strong>{{ source.name }}</strong>
-            <small>每页 {{ configuration.page_sizes[source.key] }} 篇，最多 {{ configuration.maximum_limits[source.key] }} 篇</small>
           </span>
           <span class="source-limit-input-wrap">
             <input
@@ -253,18 +252,10 @@ onMounted(refresh)
 .source-limit-info {
   min-width: 0;
 }
-.source-limit-info strong,
-.source-limit-info small {
-  display: block;
-}
 .source-limit-info strong {
+  display: block;
   color: #263d5b;
   font-size: 14px;
-}
-.source-limit-info small {
-  margin-top: 4px;
-  color: #687891;
-  font-size: 12px;
 }
 .source-limit-input-wrap {
   display: flex;

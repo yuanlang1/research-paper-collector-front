@@ -102,6 +102,12 @@ function asNullableString(value: unknown): string | null {
   return typeof value === 'string' && value ? value : null
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+}
+
 function historicalStep(step: AgentCardTimelineStep): HistoricalExecutionStep {
   const state = step.state === 'completed' ? 'completed' : step.state === 'failed' ? 'failed' : 'started'
   return {
@@ -152,26 +158,45 @@ function historicalExecutionCard(meta: AgentConversationMessageMeta | null): His
     warnings: [],
     timeline: []
   }))
-  const subagents: HistoricalExecutionActivity[] = (card.subagents || []).map((subagent, index) => ({
-    id: `subagent:${subagent.delegation_id || subagent.workflow || index}`,
-    kind: 'subagent',
-    name: subagentDisplayName(subagent),
-    status: subagent.status,
-    startSeq: asNullableNumber(subagent.start_seq),
-    endSeq: asNullableNumber(subagent.end_seq),
-    summary: asNullableString(subagent.summary),
-    artifacts: asStringList(subagent.artifact_refs),
-    error: asNullableString(subagent.error) || asNullableString(subagent.error_message) || asNullableString(subagent.error_code),
-    phaseLabel: asNullableString(subagent.phase_label),
-    progressPercent: asNullableNumber(subagent.progress_percent),
-    taskId: typeof subagent.task_id === 'string' || typeof subagent.task_id === 'number' ? subagent.task_id : null,
-    warnings: asStringList(subagent.warnings),
-    detailsExpanded: subagent.status === 'running',
-    timeline: (subagent.timeline || []).map(historicalStep).sort((left, right) =>
-      (left.startSeq ?? Number.MAX_SAFE_INTEGER) - (right.startSeq ?? Number.MAX_SAFE_INTEGER)
-    ),
-    timelineExpanded: subagent.status === 'running'
-  }))
+  const subagents: HistoricalExecutionActivity[] = (card.subagents || []).map((subagent, index) => {
+    const result = asRecord(subagent.result)
+    const taskStatusUpdateError = asNullableString(result.task_status_update_error)
+    const pdfCleanupError = asNullableString(result.pdf_cleanup_error)
+    const taskId = subagent.task_id ?? result.search_task_id ?? result.task_id
+    const status = taskStatusUpdateError && ['success', 'completed'].includes(subagent.status)
+      ? 'partial'
+      : subagent.status
+
+    return {
+      id: `subagent:${subagent.delegation_id || subagent.workflow || index}`,
+      kind: 'subagent',
+      name: subagentDisplayName(subagent),
+      status,
+      startSeq: asNullableNumber(subagent.start_seq),
+      endSeq: asNullableNumber(subagent.end_seq),
+      summary: asNullableString(subagent.summary),
+      artifacts: asStringList(subagent.artifact_refs),
+      error: asNullableString(subagent.error) || asNullableString(subagent.error_message) || asNullableString(subagent.error_code) ||
+        (taskStatusUpdateError ? '检索结果已生成，但远程任务状态同步失败。' : null),
+      phaseLabel: asNullableString(subagent.phase_label),
+      progressPercent: asNullableNumber(subagent.progress_percent),
+      taskId: typeof taskId === 'string' || typeof taskId === 'number' ? taskId : null,
+      warnings: [
+        ...new Set([
+          ...asStringList(subagent.warnings),
+          ...asStringList(result.warnings),
+          ...(taskStatusUpdateError ? ['检索结果已生成，但远程任务状态同步失败。'] : []),
+          ...(pdfCleanupError ? [`PDF 清理失败：${pdfCleanupError}`] : []),
+          ...(result.degraded === true ? ['本次检索包含降级结果。'] : [])
+        ])
+      ],
+      detailsExpanded: status === 'running',
+      timeline: (subagent.timeline || []).map(historicalStep).sort((left, right) =>
+        (left.startSeq ?? Number.MAX_SAFE_INTEGER) - (right.startSeq ?? Number.MAX_SAFE_INTEGER)
+      ),
+      timelineExpanded: status === 'running'
+    }
+  })
 
   return {
     status: card.status,
@@ -412,11 +437,14 @@ export const useAgentChatStore = defineStore('agentChat', () => {
 
     item.name = activityName(kind, data)
     if (terminal) {
-      item.status = typeof data.status === 'string' ? data.status : 'failed'
+      const status = typeof data.status === 'string' ? data.status : 'failed'
+      item.status = item.status === 'partial' && ['accepted', 'completed', 'success'].includes(status)
+        ? 'partial'
+        : status
       item.endSeq = event.sequence
       item.summary = asNullableString(data.summary)
       item.artifacts = asStringList(data.artifact_refs)
-      item.error = asNullableString(data.error_message) || asNullableString(data.error_code)
+      item.error = asNullableString(data.error_message) || asNullableString(data.error_code) || item.error
     }
   }
 
@@ -424,13 +452,45 @@ export const useAgentChatStore = defineStore('agentChat', () => {
     const item = upsertExecutionActivity('subagent', data, event.sequence)
     if (!item) return
 
+    const result = asRecord(data.data)
+    const details = event.event === 'subagent_progress' ? asRecord(data.details) : result
+    const taskId = data.task_id ?? result.search_task_id ?? result.task_id
+    const progressPercent = asNullableNumber(data.progress_percent) ?? asNullableNumber(data.progress)
+    const isTerminal = event.event === 'subagent_completed' || event.event === 'subagent_failed'
+    const isFailed = event.event === 'subagent_failed'
+    const taskStatusUpdateError = asNullableString(details.task_status_update_error)
+    const pdfCleanupError = asNullableString(details.pdf_cleanup_error)
+    const degraded = details.degraded === true
+
     item.name = activityName('subagent', data)
-    item.status = typeof data.status === 'string' ? data.status : item.status
-    item.phaseLabel = asNullableString(data.phase_label)
-    item.progressPercent = asNullableNumber(data.progress_percent)
-    item.taskId = typeof data.task_id === 'string' || typeof data.task_id === 'number' ? data.task_id : null
-    item.warnings = asStringList(data.warnings)
-    item.error = asNullableString(data.error) || asNullableString(data.task_status_update_error) || asNullableString(data.pdf_cleanup_error)
+    if (event.event === 'subagent_started') {
+      item.status = 'running'
+      item.endSeq = null
+      item.error = null
+    } else if (typeof data.status === 'string') {
+      item.status = data.status
+    }
+    if (asNullableString(data.phase_label)) item.phaseLabel = asNullableString(data.phase_label)
+    if (progressPercent !== null) item.progressPercent = progressPercent
+    if (typeof taskId === 'string' || typeof taskId === 'number') item.taskId = taskId
+    if (isTerminal) {
+      item.endSeq = event.sequence
+      item.summary = asNullableString(data.message) || item.summary
+    }
+    item.warnings = [
+      ...new Set([
+        ...item.warnings,
+        ...asStringList(data.warnings),
+        ...asStringList(result.warnings),
+        ...(taskStatusUpdateError ? ['检索结果已生成，但远程任务状态同步失败。'] : []),
+        ...(pdfCleanupError ? [`PDF 清理失败：${pdfCleanupError}`] : []),
+        ...(degraded ? ['本次检索包含降级结果。'] : [])
+      ])
+    ]
+    item.error = asNullableString(data.error) ||
+      (isFailed ? asNullableString(data.message) : null) ||
+      (taskStatusUpdateError ? '检索结果已生成，但远程任务状态同步失败。' : item.error)
+    if (taskStatusUpdateError) item.status = 'partial'
   }
 
   function updateExecutionTimeline(event: AgentStreamEvent, data: Record<string, unknown>) {
@@ -497,7 +557,7 @@ export const useAgentChatStore = defineStore('agentChat', () => {
     if (event.event === 'timeline_step') {
       updateExecutionTimeline(event, data)
     }
-    if (event.event === 'subagent_progress') {
+    if (['subagent_started', 'subagent_progress', 'subagent_completed', 'subagent_failed'].includes(event.event)) {
       updateExecutionSubagent(event, data)
     }
     if (event.event === 'action_started') {
@@ -637,11 +697,6 @@ export const useAgentChatStore = defineStore('agentChat', () => {
     })
   }
 
-  function disconnectStream() {
-    clearStream()
-    markStreamDetached()
-  }
-
   function setLlmProfile(profileId: number | null) {
     selectedLlmProfileId.value = profileId && Number.isInteger(profileId) && profileId > 0 ? profileId : null
   }
@@ -725,7 +780,7 @@ export const useAgentChatStore = defineStore('agentChat', () => {
 
   return {
     messages, runStatus, conversationId, pendingConfirmation, confirmationComment, activeRunId, selectedLlmProfileId, isRunning,
-    hasConversation, send, resume, disconnectStream,
+    hasConversation, send, resume,
     resetConversation, loadConversation, setLlmProfile
   }
 })
